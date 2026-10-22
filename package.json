@@ -1,6 +1,6 @@
 {
   "name": "nemkit-inventory-api",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "API de gestión básica de inventario",
   "main": "src/server.js",
   "engines": {
@@ -14,6 +14,6 @@
     "nodemon": "^3.1.14"
   },
   "dependencies": {
-    "nemkit": "github:josmejia2401dev/nemkit#6d9ec11db05be687c0a08856c0a96bffcefd6de2"
+    "nemkit": "github:josmejia2401dev/nemkit#a512b7bde61c686a6de73b9d7c99db404be59877"
   }
 }
