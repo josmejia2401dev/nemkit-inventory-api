@@ -22,6 +22,15 @@ const MOVEMENT_DIRECTION = Object.freeze({
   OUT: 'out',
 });
 
+const MOVEMENT_SOURCE_TYPE = Object.freeze({
+  PURCHASE: 'purchase',
+  SALE: 'sale',
+});
+
+const DOCUMENT_STATUS = Object.freeze({
+  COMPLETED: 'completed',
+});
+
 const PRODUCT_STATUSES = Object.freeze(Object.values(PRODUCT_STATUS));
 const STOCK_STATE = Object.freeze({
   OUT_OF_STOCK: 'out_of_stock',
@@ -40,4 +49,6 @@ module.exports = {
   MOVEMENT_TYPES,
   MOVEMENT_DIRECTION,
   MOVEMENT_DIRECTIONS,
+  MOVEMENT_SOURCE_TYPE,
+  DOCUMENT_STATUS,
 };

@@ -6,7 +6,7 @@ const { dashboardService } = require('./dashboard.service');
 class DashboardController {
   async alerts(req, res, next) {
     try {
-      const alerts = await dashboardService.stockAlerts(req.user.id);
+      const alerts = await dashboardService.stockAlertDetails(req.user.id);
       return success(res, alerts);
     } catch (error) {
       next(error);

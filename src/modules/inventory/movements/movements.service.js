@@ -48,14 +48,37 @@ class MovementsService extends BaseService {
       throw HttpError.badRequest('from must be before to');
     }
 
-    return this.filterAndPaginate(filter, {
+    const result = await this.filterAndPaginate(filter, {
       page,
       limit,
       between: { field: 'date', from, to },
     });
+    const productIds = [...new Set(result.data.flatMap((movement) => movement.items.map((item) => item.productId)))];
+    const products = productIds.length
+      ? await this.products.model.find({ userId, _id: { $in: productIds } })
+        .select('_id name sku')
+        .lean()
+      : [];
+    const productById = new Map(products.map((product) => [product._id, product]));
+
+    return {
+      ...result,
+      data: result.data.map((movement) => ({
+        ...movement,
+        items: movement.items.map((item) => ({
+          ...item,
+          name: productById.get(item.productId)?.name || `Producto #${item.productId}`,
+          sku: productById.get(item.productId)?.sku || '',
+        })),
+      })),
+    };
   }
 
   async create(data, userId) {
+    if ([MOVEMENT_TYPE.PURCHASE, MOVEMENT_TYPE.SALE].includes(data.type)) {
+      throw HttpError.badRequest('Purchases and sales must be registered through their documents');
+    }
+
     const items = this.#validateItems(data);
     const date = data.date ? parseDate(data.date, 'date') : new Date();
     const totals = new Map();
@@ -144,6 +167,9 @@ class MovementsService extends BaseService {
     }
 
     const defaultDirection = TYPE_DIRECTIONS[data.type];
+    if ([MOVEMENT_TYPE.PURCHASE, MOVEMENT_TYPE.SALE].includes(data.type)) {
+      throw HttpError.badRequest('Purchases and sales must be registered through their documents');
+    }
     if (!defaultDirection && data.type !== MOVEMENT_TYPE.MANUAL_ADJUSTMENT) {
       throw HttpError.badRequest('Unsupported movement type');
     }

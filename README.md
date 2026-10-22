@@ -25,6 +25,10 @@ Un producto con stock no se puede eliminar lógicamente hasta registrar una sali
 - `GET/POST /api/v1/products`, `GET/PUT/DELETE /api/v1/products/:id`
 - `GET/POST /api/v1/categories`, `PUT/DELETE /api/v1/categories/:id`
 - `GET/POST /api/v1/movements`, `GET /api/v1/movements/:id`
+- `GET/POST /api/v1/suppliers`, `GET/PUT/DELETE /api/v1/suppliers/:id`
+- `GET/POST /api/v1/customers`, `GET/PUT/DELETE /api/v1/customers/:id`
+- `GET/POST /api/v1/purchases`, `GET /api/v1/purchases/:id`
+- `GET/POST /api/v1/sales`, `GET /api/v1/sales/:id`
 - `GET /api/v1/dashboard/summary`
 - `/api/v1/auth` y `/api/v1/profile` heredadas del foundation
 
@@ -32,9 +36,17 @@ El prefijo efectivo depende de `API_PREFIX` en la configuración de entorno.
 
 ## Movimientos y stock
 
-Las compras agregan unidades; ventas, daños, pérdidas y consumo interno las descuentan. `manual_adjustment` acepta `direction: "in" | "out"` por artículo. Las salidas se condicionan al stock disponible. La actualización de stock y la escritura del movimiento se confirman o revierten juntas mediante una transacción MongoDB.
+Las compras y ventas comerciales se registran como documentos inmutables. Cada documento conserva una copia de los datos del contacto y de los productos para mantener el historial aunque después se editen o desactiven. La compra requiere proveedor y la venta requiere cliente; si aún no existe, se puede crear desde el flujo de venta.
+
+Al confirmar una compra o venta, el documento, el cambio de stock y el movimiento asociado se confirman o revierten juntos mediante una transacción MongoDB. Las salidas se condicionan al stock disponible. Daños, pérdidas, consumo interno y ajustes manuales continúan registrándose desde movimientos.
+
+El endpoint manual `POST /movements` rechaza los tipos `purchase` y `sale`; esos movimientos solo se crean junto con una compra o venta para conservar proveedor/cliente, comprobante y trazabilidad.
+
+Los comprobantes de venta se presentan en el frontend en formato imprimible; el navegador permite imprimir en térmica o guardar en PDF. Son comprobantes simples, no facturas electrónicas fiscales.
 
 El backend requiere MongoDB configurado como replica set (MongoDB Atlas cumple este requisito) para habilitar transacciones.
+
+Los reportes agrupados por día, semana y mes usan `$dateTrunc` y requieren MongoDB 5.0 o posterior.
 
 ## Desarrollo
 

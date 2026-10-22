@@ -2,10 +2,15 @@
 
 const { success, created, paginated, createValidator } = require('nemkit');
 const { movementsService: service } = require('./movements.service');
-const { MOVEMENT_TYPES } = require('../inventory.constants');
+const { MOVEMENT_TYPE, MOVEMENT_TYPES } = require('../inventory.constants');
+
+const CREATABLE_MOVEMENT_TYPES = MOVEMENT_TYPES.filter((type) => ![
+  MOVEMENT_TYPE.PURCHASE,
+  MOVEMENT_TYPE.SALE,
+].includes(type));
 
 const schema = createValidator({
-  type: { type: 'string', required: true, enum: MOVEMENT_TYPES },
+  type: { type: 'string', required: true, enum: CREATABLE_MOVEMENT_TYPES },
   date: { type: 'date' },
   notes: { type: 'string', trim: true, maxLength: 1000 },
   items: { type: 'array', required: true, minLength: 1 },

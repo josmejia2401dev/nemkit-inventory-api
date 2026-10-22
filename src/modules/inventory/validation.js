@@ -57,6 +57,10 @@ function validateProductFields(data) {
     }
   }
 
+  if (data.minimumStock !== undefined && !Number.isInteger(data.minimumStock)) {
+    throw HttpError.badRequest('minimumStock must be an integer');
+  }
+
   if (data.image !== undefined) {
     const image = data.image;
     if (!image || typeof image !== 'object' || Array.isArray(image)) {

@@ -7,6 +7,7 @@ const {
   hashPassword,
   comparePassword,
   RequestContext,
+  createValidator,
 } = require('nemkit');
 const { authenticate } = require('../middlewares/auth.middleware');
 const authRoutes = require('../modules/foundation/auth/auth.routes');
@@ -15,8 +16,22 @@ const productsRoutes = require('../modules/inventory/products/products.routes');
 const categoriesRoutes = require('../modules/inventory/categories/categories.routes');
 const movementsRoutes = require('../modules/inventory/movements/movements.routes');
 const dashboardRoutes = require('../modules/inventory/dashboard/dashboard.routes');
+const suppliersRoutes = require('../modules/inventory/suppliers/suppliers.routes');
+const customersRoutes = require('../modules/inventory/customers/customers.routes');
+const purchasesRoutes = require('../modules/inventory/purchases/purchases.routes');
+const salesRoutes = require('../modules/inventory/sales/sales.routes');
+const reportsRoutes = require('../modules/inventory/reports/reports.routes');
 
 const router = express.Router();
+
+const profileSchema = createValidator({
+  fullName: { type: 'string', required: true, trim: true, minLength: 2, maxLength: 160 },
+  email: { type: 'email', required: true, trim: true, lowercase: true, maxLength: 254 },
+});
+const passwordSchema = createValidator({
+  currentPassword: { type: 'string', required: true, minLength: 1, maxLength: 128 },
+  newPassword: { type: 'string', required: true, minLength: 6, maxLength: 128 },
+});
 
 router.use('/auth', authRoutes);
 router.use(authenticate);
@@ -51,12 +66,16 @@ router.get('/profile', async (req, res, next) => {
 
 router.put('/profile', async (req, res, next) => {
   try {
-    const { fullName, email } = req.body;
-    const user = await usersService.updateById(
-      req.user.id,
-      { fullName, email },
-      req.user.id,
-    );
+    const { errorResponse, sanitized } = profileSchema.check(req.body ?? {}, req);
+    if (errorResponse) return res.status(400).json(errorResponse);
+
+    let user;
+    try {
+      user = await usersService.updateById(req.user.id, sanitized, req.user.id);
+    } catch (error) {
+      if (error?.code === 11000) throw HttpError.conflict('Email already registered');
+      throw error;
+    }
 
     return success(res, { fullName: user.fullName, email: user.email }, 'Profile updated');
   } catch (error) {
@@ -66,10 +85,9 @@ router.put('/profile', async (req, res, next) => {
 
 router.put('/profile/password', async (req, res, next) => {
   try {
-    const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword || newPassword.length < 6) {
-      throw HttpError.badRequest('A valid current password and new password (at least 6 characters) are required');
-    }
+    const { errorResponse, sanitized } = passwordSchema.check(req.body ?? {}, req);
+    if (errorResponse) return res.status(400).json(errorResponse);
+    const { currentPassword, newPassword } = sanitized;
 
     const user = await usersService.findByIdWithPassword(req.user.id);
     if (!user || !(await comparePassword(currentPassword, user.passwordHash))) {
@@ -89,5 +107,10 @@ router.use('/products', productsRoutes);
 router.use('/categories', categoriesRoutes);
 router.use('/movements', movementsRoutes);
 router.use('/dashboard', dashboardRoutes);
+router.use('/suppliers', suppliersRoutes);
+router.use('/customers', customersRoutes);
+router.use('/purchases', purchasesRoutes);
+router.use('/sales', salesRoutes);
+router.use('/reports', reportsRoutes);
 
 module.exports = router;

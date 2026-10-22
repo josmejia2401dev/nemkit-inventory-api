@@ -31,6 +31,10 @@ class ProductsService extends BaseService {
       filter.categoryId = positiveInteger(categoryId, 'categoryId');
     }
 
+    if (query.productId !== undefined) {
+      filter._id = positiveInteger(query.productId, 'productId');
+    }
+
     if (status && !PRODUCT_STATUSES.includes(status)) {
       throw HttpError.badRequest(`status must be ${PRODUCT_STATUSES.join(' or ')}`);
     }

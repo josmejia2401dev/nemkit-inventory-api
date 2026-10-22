@@ -1,6 +1,7 @@
 'use strict';
 
 const Product = require('../products/products.model');
+const Category = require('../categories/categories.model');
 const Movement = require('../movements/movements.model');
 const { RECORD_STATUS } = require('nemkit');
 const { PRODUCT_STATUS, MOVEMENT_TYPE } = require('../inventory.constants');
@@ -28,6 +29,44 @@ class DashboardService {
     ]);
 
     return { outOfStock, lowStock };
+  }
+
+  async stockAlertDetails(userId) {
+    const products = await Product.find({
+      userId,
+      status: PRODUCT_STATUS.ACTIVE,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      $or: [
+        { stock: 0 },
+        { $expr: { $and: [{ $gt: ['$stock', 0] }, { $lte: ['$stock', '$minimumStock'] }] } },
+      ],
+    })
+      .select('_id name sku stock minimumStock categoryId')
+      .sort({ stock: 1, name: 1 })
+      .lean();
+
+    const categoryIds = [...new Set(products.map((product) => product.categoryId))];
+    const categories = await Category.find({
+      _id: { $in: categoryIds },
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+    }).select('_id name').lean();
+    const categoryNames = new Map(categories.map((category) => [category._id, category.name]));
+    const items = products.map((product) => ({
+      id: product._id,
+      name: product.name,
+      sku: product.sku,
+      stock: product.stock,
+      minimumStock: product.minimumStock,
+      categoryName: categoryNames.get(product.categoryId) || '',
+      state: product.stock === 0 ? 'out_of_stock' : 'low_stock',
+    }));
+
+    return {
+      outOfStock: items.filter((product) => product.state === 'out_of_stock').length,
+      lowStock: items.filter((product) => product.state === 'low_stock').length,
+      products: items,
+    };
   }
 
   async summary(userId) {
