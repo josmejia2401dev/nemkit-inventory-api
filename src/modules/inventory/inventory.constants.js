@@ -111,22 +111,55 @@ const EMPLOYEE_STATUS = Object.freeze({
   INACTIVE: 'inactive',
 });
 
-/** Estados del ciclo de vida de un domicilio/pedido. */
+/**
+ * Estados del ciclo de vida de un domicilio/pedido.
+ *
+ * Un pedido es UNA sola línea de estados. Los tres primeros (pending, preparing,
+ * ready) son "del pedido" y los dicta la cocina (se sincronizan desde el tablero
+ * de cocina). Los cuatro siguientes son "de reparto" y los mueve el domiciliario.
+ */
 const DELIVERY_STATUS = Object.freeze({
-  PENDING: 'pending',
-  PREPARING: 'preparing',
-  ON_ROUTE: 'on_route',
-  DELIVERED: 'delivered',
-  CANCELLED: 'cancelled',
+  // Fase de cocina (compartida con la comanda; la mueve la cocina).
+  PENDING: 'pending',       // recibido
+  PREPARING: 'preparing',   // cocinando
+  READY: 'ready',           // listo para recoger
+  // Fase de reparto (solo el domiciliario).
+  PICKED_UP: 'picked_up',   // recogido por el domiciliario
+  ON_ROUTE: 'on_route',     // en camino
+  DELIVERED: 'delivered',   // entregado
+  CANCELLED: 'cancelled',   // cancelado
 });
 
-/** Transiciones de estado permitidas. */
+/**
+ * Transiciones de estado permitidas en la fase de REPARTO. La cocina maneja
+ * pending→preparing→ready por su cuenta (sincronización), así que aquí solo se
+ * modela lo que puede hacer el domiciliario de 'ready' en adelante.
+ */
 const DELIVERY_TRANSITIONS = Object.freeze({
-  pending: ['preparing', 'on_route', 'cancelled'],
-  preparing: ['on_route', 'cancelled'],
+  // En tienda (sin cocina) el domicilio nace 'pending' y el domiciliario lo
+  // recoge directo. En restaurante la cocina lo lleva a 'ready' y de ahí se
+  // recoge. Por eso 'pending'/'preparing'/'ready' permiten pasar a 'picked_up'.
+  pending: ['picked_up', 'cancelled'],
+  preparing: ['picked_up', 'cancelled'],
+  ready: ['picked_up', 'cancelled'],
+  picked_up: ['on_route', 'cancelled'],
   on_route: ['delivered', 'cancelled'],
   delivered: [],
   cancelled: [],
+});
+
+/** Estados del domicilio que mueve el domiciliario (fase de reparto). */
+const DELIVERY_COURIER_STATUSES = Object.freeze(['picked_up', 'on_route', 'delivered', 'cancelled']);
+
+/**
+ * Mapeo cocina → domicilio: al cambiar el estado de cocina de una venta con
+ * domicilio asociado, el domicilio se mueve al mismo punto de la fase de pedido.
+ * 'served' (cocina) no aplica al domicilio (servir en mesa ≠ reparto).
+ */
+const KITCHEN_TO_DELIVERY_STATUS = Object.freeze({
+  pending: 'pending',
+  preparing: 'preparing',
+  ready: 'ready',
 });
 
 /** Niveles de fidelización del cliente. */
@@ -235,4 +268,6 @@ module.exports = {
   DELIVERY_STATUS,
   DELIVERY_STATUSES,
   DELIVERY_TRANSITIONS,
+  DELIVERY_COURIER_STATUSES,
+  KITCHEN_TO_DELIVERY_STATUS,
 };

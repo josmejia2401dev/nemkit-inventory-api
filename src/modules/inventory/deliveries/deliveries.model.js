@@ -38,7 +38,9 @@ const DeliverySchema = applyPlatformSchema({
 
   // Hitos de negocio (distintos de createdAt/updatedAt de auditoría).
   timeline: {
-    dispatchedAt: { type: Date, default: null },
+    readyAt: { type: Date, default: null },      // cocina marcó listo para recoger
+    pickedUpAt: { type: Date, default: null },   // el domiciliario lo recogió
+    dispatchedAt: { type: Date, default: null }, // salió en ruta
     deliveredAt: { type: Date, default: null },
     cancelledAt: { type: Date, default: null },
   },

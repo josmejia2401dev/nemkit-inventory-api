@@ -22,6 +22,7 @@ const {
   KITCHEN_STATUS,
   KITCHEN_STATUSES,
   KITCHEN_TRANSITIONS,
+  KITCHEN_TO_DELIVERY_STATUS,
   resolveLoyaltyTier,
 } = require('../inventory.constants');
 
@@ -300,7 +301,36 @@ class SalesService extends InventoryDocumentService {
     if (nextStatus === KITCHEN_STATUS.SERVED) update['kitchenTimeline.servedAt'] = now;
 
     await Sale.updateOne({ _id: id, userId }, { $set: { ...update, updatedBy: userId } });
+
+    // Sincronizar el domicilio asociado (si existe): el pedido es una sola línea
+    // de estados. La cocina dicta pending/preparing/ready; de ahí en adelante el
+    // reparto lo maneja el domiciliario. No se toca si ya pasó a reparto
+    // (picked_up/on_route) ni si terminó (delivered/cancelled). 'served' no mapea.
+    await this.#syncDeliveryFromKitchen(id, nextStatus, userId);
+
     return { id, kitchenStatus: nextStatus };
+  }
+
+  /**
+   * Propaga el estado de cocina al domicilio asociado, solo mientras el pedido
+   * sigue en fase de cocina. No bloquea el flujo si no hay domicilio o si ya
+   * está en manos del domiciliario.
+   */
+  async #syncDeliveryFromKitchen(saleId, kitchenStatus, userId) {
+    const target = KITCHEN_TO_DELIVERY_STATUS[kitchenStatus];
+    if (!target) return; // 'served' u otro: el domicilio no se ve afectado.
+
+    const delivery = await Delivery.findOne({ saleId, userId, recordStatus: RECORD_STATUS.ACTIVE })
+      .select('_id status').lean();
+    if (!delivery) return; // venta de mesa/para llevar: no hay domicilio.
+
+    // Solo mover si el domicilio sigue en fase de cocina (no lo recogió aún el
+    // domiciliario ni terminó). Evita pisar el trabajo del repartidor.
+    const kitchenPhase = [DELIVERY_STATUS.PENDING, DELIVERY_STATUS.PREPARING, DELIVERY_STATUS.READY];
+    if (!kitchenPhase.includes(delivery.status) || delivery.status === target) return;
+
+    const update = { status: target, updatedBy: userId };
+    await Delivery.updateOne({ _id: delivery._id, userId }, { $set: update });
   }
 
   /**

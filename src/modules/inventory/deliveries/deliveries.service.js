@@ -81,12 +81,15 @@ class DeliveriesService extends BaseService {
     if (!allowed.includes(nextStatus)) {
       throw HttpError.conflict(`Cannot change status from ${delivery.status} to ${nextStatus}`);
     }
-    if (nextStatus === DELIVERY_STATUS.ON_ROUTE && delivery.courierId == null) {
-      throw HttpError.badRequest('Assign a courier before dispatching the delivery');
+    // Recoger o salir a ruta requiere un domiciliario asignado.
+    if ((nextStatus === DELIVERY_STATUS.PICKED_UP || nextStatus === DELIVERY_STATUS.ON_ROUTE)
+      && delivery.courierId == null) {
+      throw HttpError.badRequest('Assign a courier before picking up the delivery');
     }
 
     const update = { status: nextStatus };
     const now = new Date();
+    if (nextStatus === DELIVERY_STATUS.PICKED_UP) update['timeline.pickedUpAt'] = now;
     if (nextStatus === DELIVERY_STATUS.ON_ROUTE) update['timeline.dispatchedAt'] = now;
     if (nextStatus === DELIVERY_STATUS.DELIVERED) update['timeline.deliveredAt'] = now;
     if (nextStatus === DELIVERY_STATUS.CANCELLED) update['timeline.cancelledAt'] = now;
