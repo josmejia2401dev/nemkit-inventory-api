@@ -136,11 +136,11 @@ const DELIVERY_STATUS = Object.freeze({
  * modela lo que puede hacer el domiciliario de 'ready' en adelante.
  */
 const DELIVERY_TRANSITIONS = Object.freeze({
-  // En tienda (sin cocina) el domicilio nace 'pending' y el domiciliario lo
-  // recoge directo. En restaurante la cocina lo lleva a 'ready' y de ahí se
-  // recoge. Por eso 'pending'/'preparing'/'ready' permiten pasar a 'picked_up'.
-  pending: ['picked_up', 'cancelled'],
-  preparing: ['picked_up', 'cancelled'],
+  // Flujo canónico (restaurante): la cocina lleva pending→preparing→ready; el
+  // domiciliario SOLO puede recoger cuando está 'ready'. En tienda (sin cocina)
+  // el servicio permite recoger directo desde 'pending' (ver changeStatus).
+  pending: ['cancelled'],
+  preparing: ['cancelled'],
   ready: ['picked_up', 'cancelled'],
   picked_up: ['on_route', 'cancelled'],
   on_route: ['delivered', 'cancelled'],

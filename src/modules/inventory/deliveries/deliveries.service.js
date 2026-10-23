@@ -77,8 +77,20 @@ class DeliveriesService extends BaseService {
       throw HttpError.badRequest(`status must be one of: ${DELIVERY_STATUSES.join(', ')}`);
     }
     const delivery = await this.getOwned(id, userId, ctx);
-    const allowed = DELIVERY_TRANSITIONS[delivery.status] ?? [];
+    const allowed = [...(DELIVERY_TRANSITIONS[delivery.status] ?? [])];
+    // Excepción tienda (sin cocina): el domiciliario puede recoger directamente
+    // desde 'pending'/'preparing' porque no hay cocina que marque "listo".
+    // En restaurante (fromKitchen) esto NO se permite: debe estar 'ready'.
+    if (!delivery.fromKitchen
+      && (delivery.status === DELIVERY_STATUS.PENDING || delivery.status === DELIVERY_STATUS.PREPARING)
+      && !allowed.includes(DELIVERY_STATUS.PICKED_UP)) {
+      allowed.push(DELIVERY_STATUS.PICKED_UP);
+    }
     if (!allowed.includes(nextStatus)) {
+      // Mensaje claro cuando el domiciliario intenta recoger antes de que la cocina termine.
+      if (nextStatus === DELIVERY_STATUS.PICKED_UP && delivery.fromKitchen) {
+        throw HttpError.conflict('The kitchen must mark the order as "ready" before it can be picked up');
+      }
       throw HttpError.conflict(`Cannot change status from ${delivery.status} to ${nextStatus}`);
     }
     // Recoger o salir a ruta requiere un domiciliario asignado.

@@ -62,6 +62,8 @@ class SalesService extends InventoryDocumentService {
       _id: UniqueNumberUtil.generateRaw(),
       userId,
       saleId: document._id,
+      // Restaurante: la venta nace con kitchenStatus → el pedido pasa por cocina.
+      fromKitchen: data.kitchenStatus != null,
       customerId: document.customerId,
       customerSnapshot: {
         name: contact.name,

@@ -14,6 +14,10 @@ const DeliveryItemSchema = new mongoose.Schema({
 
 const DeliverySchema = applyPlatformSchema({
   userId: { type: Number, required: true, index: true },
+  // ¿El pedido pasa por cocina? (restaurante). Si es true, el domiciliario solo
+  // puede recogerlo cuando la cocina lo marque "listo" (ready). En tienda (false)
+  // puede recogerlo desde el inicio.
+  fromKitchen: { type: Boolean, default: false },
   // Venta asociada (opcional; en esta fase la gestión logística es independiente).
   saleId: { type: Number, default: null, index: true },
   customerId: { type: Number, required: true, min: 1, index: true },
