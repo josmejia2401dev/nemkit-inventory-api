@@ -29,6 +29,7 @@ const employeesRoutes = require('../modules/inventory/employees/employees.routes
 const { employeesController } = require('../modules/inventory/employees/employees.controller');
 const deliveriesRoutes = require('../modules/inventory/deliveries/deliveries.routes');
 const tablesRoutes = require('../modules/inventory/tables/tables.routes');
+const feedbackRoutes = require('../modules/foundation/feedback/feedback.routes');
 
 const router = express.Router();
 
@@ -136,6 +137,10 @@ router.put('/settings/business', requireRole('ADMIN', 'SUPERADMIN'), async (req,
     next(error);
   }
 });
+
+// Reportes de bugs/hallazgos: transversal. Cualquier usuario reporta; el super
+// admin los ve TODOS (global, sin acotar por empresa), por eso va antes del scope.
+router.use('/feedback', feedbackRoutes);
 
 // A partir de aquí, el dominio de inventario opera sobre la empresa (tenant).
 router.use(scopeToTenant);
