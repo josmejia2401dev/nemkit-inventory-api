@@ -140,6 +140,8 @@ class ProductsService extends BaseService {
         categoryId,
         userId,
         stock: 0,
+        // Precio de compra opcional: si no viene, queda en 0.
+        purchasePrice: data.purchasePrice ?? 0,
         recipe,
       }, userId);
     } catch (error) {

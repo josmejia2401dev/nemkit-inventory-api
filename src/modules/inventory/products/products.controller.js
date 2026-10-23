@@ -23,7 +23,7 @@ const createSchema = createValidator({
   categoryId: { ...fields.categoryId, required: true },
   sku: { ...fields.sku, required: true },
   name: { ...fields.name, required: true },
-  purchasePrice: { ...fields.purchasePrice, required: true },
+  // El precio de compra es opcional (los platos no se compran). Por defecto 0.
   salePrice: { ...fields.salePrice, required: true },
 });
 

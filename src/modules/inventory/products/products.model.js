@@ -16,7 +16,9 @@ const ProductSchema = applyPlatformSchema({
   barcode: { type: String, trim: true, default: '' },
   name: { type: String, required: true, trim: true, maxlength: 160 },
   description: { type: String, trim: true, default: '', maxlength: 2000 },
-  purchasePrice: { type: Number, required: true, min: 0 },
+  // Precio de compra OPCIONAL: los platos no se compran (su costo sale de la
+  // receta) y algunos negocios no lo registran. Por defecto 0.
+  purchasePrice: { type: Number, default: 0, min: 0 },
   salePrice: { type: Number, required: true, min: 0 },
   // Stock: los insumos permiten decimales (gramos/ml); simple usa enteros desde la app.
   // Los platos (prepared) no usan stock propio (su disponibilidad deriva de los insumos).
