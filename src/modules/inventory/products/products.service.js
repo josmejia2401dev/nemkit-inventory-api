@@ -126,6 +126,9 @@ class ProductsService extends BaseService {
 
     if (!category) throw HttpError.badRequest('Invalid or inactive category');
 
+    // La receta es OPCIONAL para los platos: un restaurante pequeño puede no
+    // tener medidas exactas. Si se envían insumos se validan; si no, queda vacía
+    // (la venta del plato no descontará stock de insumos).
     const recipe = type === PRODUCT_TYPE.PREPARED
       ? await this.#validateRecipe(data.recipe, userId)
       : [];
@@ -231,15 +234,19 @@ class ProductsService extends BaseService {
   }
 
   /**
-   * Valida la receta de un plato: lista no vacía de insumos existentes (tipo
-   * ingredient o simple, activos, del mismo tenant) con cantidad positiva. No se
-   * permiten sub-recetas (un insumo no puede ser prepared). `selfId` evita que un
-   * plato se use a sí mismo como insumo.
+   * Valida la receta de un plato. La receta es OPCIONAL: puede venir vacía o sin
+   * definir (el plato se vende sin descontar insumos). Si trae ítems, cada insumo
+   * debe existir (tipo ingredient o simple, activo, del mismo tenant) con cantidad
+   * positiva. No se permiten sub-recetas (un insumo no puede ser prepared);
+   * `selfId` evita que un plato se use a sí mismo como insumo.
    */
   async #validateRecipe(recipe, userId, selfId = null) {
-    if (!Array.isArray(recipe) || recipe.length === 0) {
-      throw HttpError.badRequest('A prepared product requires a recipe with at least one ingredient');
+    // Sin receta → válido (plato sin insumos definidos).
+    if (recipe === undefined || recipe === null) return [];
+    if (!Array.isArray(recipe)) {
+      throw HttpError.badRequest('recipe must be an array of ingredients');
     }
+    if (recipe.length === 0) return [];
     if (recipe.length > 100) throw HttpError.badRequest('recipe can contain at most 100 ingredients');
 
     const normalized = recipe.map((item) => {

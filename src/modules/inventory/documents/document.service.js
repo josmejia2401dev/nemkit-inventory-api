@@ -271,22 +271,27 @@ class InventoryDocumentService extends BaseService {
           unitCost,
         };
       });
-      await Movement.create([{
-        _id: movementId,
-        userId,
-        date,
-        type: this.movementType,
-        notes,
-        employeeId,
-        employeeSnapshot,
-        sourceType: this.movementType === MOVEMENT_TYPE.PURCHASE
-          ? MOVEMENT_SOURCE_TYPE.PURCHASE
-          : MOVEMENT_SOURCE_TYPE.SALE,
-        sourceId: documentId,
-        items: movementItems,
-        createdBy: userId,
-        updatedBy: userId,
-      }], { session });
+      // Solo se registra un movimiento de inventario si hubo consumo real de
+      // stock. Una venta compuesta únicamente por platos sin receta no mueve
+      // existencias, así que no genera movimiento (el documento sí se guarda).
+      if (movementItems.length > 0) {
+        await Movement.create([{
+          _id: movementId,
+          userId,
+          date,
+          type: this.movementType,
+          notes,
+          employeeId,
+          employeeSnapshot,
+          sourceType: this.movementType === MOVEMENT_TYPE.PURCHASE
+            ? MOVEMENT_SOURCE_TYPE.PURCHASE
+            : MOVEMENT_SOURCE_TYPE.SALE,
+          sourceId: documentId,
+          items: movementItems,
+          createdBy: userId,
+          updatedBy: userId,
+        }], { session });
+      }
 
       // Las métricas de fidelización suman cuando la venta se cobra. Una venta
       // pagada al instante (tienda) suma aquí; una "por cobrar" sumará al cobrar.

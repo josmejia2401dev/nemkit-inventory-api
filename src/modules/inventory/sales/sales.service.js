@@ -176,26 +176,31 @@ class SalesService extends InventoryDocumentService {
           .select('_id purchasePrice').session(session).lean();
         for (const p of extra) ingredientById.set(p._id, p);
       }
-      const voidMovementId = UniqueNumberUtil.generateRaw();
-      await Movement.create([{
-        _id: voidMovementId,
-        userId,
-        date: new Date(),
-        type: MOVEMENT_TYPE.SALE_VOID,
-        notes: reason ? `Anulación venta #${id}: ${reason}` : `Anulación venta #${id}`,
-        employeeId: sale.employeeId ?? null,
-        employeeSnapshot: sale.employeeSnapshot ?? { name: '' },
-        sourceType: null,
-        sourceId: id,
-        items: [...restock.entries()].map(([productId, qty]) => ({
-          productId,
-          quantity: qty,
-          direction: MOVEMENT_DIRECTION.IN,
-          unitCost: ingredientById.get(productId)?.purchasePrice ?? 0,
-        })),
-        createdBy: userId,
-        updatedBy: userId,
-      }], { session });
+      // Movimiento de reversa solo si hubo stock que reponer. Una venta de solo
+      // platos sin receta no descontó nada, así que tampoco genera reversa.
+      let voidMovementId = null;
+      if (restock.size > 0) {
+        voidMovementId = UniqueNumberUtil.generateRaw();
+        await Movement.create([{
+          _id: voidMovementId,
+          userId,
+          date: new Date(),
+          type: MOVEMENT_TYPE.SALE_VOID,
+          notes: reason ? `Anulación venta #${id}: ${reason}` : `Anulación venta #${id}`,
+          employeeId: sale.employeeId ?? null,
+          employeeSnapshot: sale.employeeSnapshot ?? { name: '' },
+          sourceType: null,
+          sourceId: id,
+          items: [...restock.entries()].map(([productId, qty]) => ({
+            productId,
+            quantity: qty,
+            direction: MOVEMENT_DIRECTION.IN,
+            unitCost: ingredientById.get(productId)?.purchasePrice ?? 0,
+          })),
+          createdBy: userId,
+          updatedBy: userId,
+        }], { session });
+      }
 
       // Marcar la venta como anulada.
       await Sale.updateOne(
