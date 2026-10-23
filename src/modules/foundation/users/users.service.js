@@ -52,6 +52,12 @@ class UsersService extends BaseService {
   findByResetToken(token) { return this.repository.findByResetToken(token); }
   updateLoginSecurity(id, data) { return this.repository.updateLoginSecurity(id, data); }
 
+  // ── Operaciones de plataforma (super admin, globales) ──────────────────
+  listGlobal(options) { return this.repository.listGlobal(options); }
+  listOwners(options) { return this.repository.listOwners(options); }
+  listEmployeesOfTenant(tenantId) { return this.repository.listEmployeesOfTenant(tenantId); }
+  countByTenant(tenantId) { return this.repository.countByTenant(tenantId); }
+
   async changePassword(userId, newPlainPassword) {
     const passwordHash = await hashPassword(newPlainPassword);
     return this.updateById(userId, { passwordHash }, userId);
