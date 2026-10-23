@@ -8,6 +8,9 @@ const { resolveEmployee } = require('../employees/employee-responsible');
 const { pagination, positiveInteger, parseDate } = require('../validation');
 const {
   PRODUCT_STATUS,
+  PRODUCT_TYPE,
+  PURCHASABLE_TYPES,
+  SELLABLE_TYPES,
   MOVEMENT_TYPE,
   MOVEMENT_DIRECTION,
   MOVEMENT_SOURCE_TYPE,
@@ -108,6 +111,57 @@ class InventoryDocumentService extends BaseService {
       }
 
       const productById = new Map(products.map((product) => [product._id, product]));
+      const isOut = this.direction === MOVEMENT_DIRECTION.OUT;
+
+      // Validar que cada producto sea apto para la operación (comprable/vendible).
+      const allowedTypes = isOut ? SELLABLE_TYPES : PURCHASABLE_TYPES;
+      for (const product of products) {
+        if (!allowedTypes.includes(product.type ?? PRODUCT_TYPE.SIMPLE)) {
+          throw HttpError.badRequest(
+            isOut
+              ? `"${product.name}" is not sellable`
+              : `"${product.name}" is not purchasable`,
+          );
+        }
+      }
+
+      // Cargar insumos de recetas (solo ventas de platos). Se consultan dentro de
+      // la transacción para validar y descontar su stock de forma consistente.
+      const ingredientById = new Map();
+      if (isOut) {
+        const ingredientIds = new Set();
+        for (const product of products) {
+          if (product.type === PRODUCT_TYPE.PREPARED) {
+            for (const ri of product.recipe ?? []) ingredientIds.add(ri.ingredientId);
+          }
+        }
+        if (ingredientIds.size) {
+          const ingredients = await Product.find({
+            userId,
+            _id: { $in: [...ingredientIds] },
+            status: PRODUCT_STATUS.ACTIVE,
+            recordStatus: RECORD_STATUS.ACTIVE,
+          }).session(session).lean();
+          for (const ing of ingredients) ingredientById.set(ing._id, ing);
+          if (ingredients.length !== ingredientIds.size) {
+            throw HttpError.badRequest('A recipe ingredient is invalid or inactive');
+          }
+        }
+      }
+
+      // Costo unitario del producto: para platos = suma de costos de insumos por receta.
+      const unitCostOf = (product) => {
+        if (product.type === PRODUCT_TYPE.PREPARED) {
+          return this.#roundMoney(
+            (product.recipe ?? []).reduce((sum, ri) => {
+              const ing = ingredientById.get(ri.ingredientId);
+              return sum + (ing ? ing.purchasePrice * ri.quantity : 0);
+            }, 0),
+          );
+        }
+        return product.purchasePrice;
+      };
+
       const quantities = new Map();
       const documentItems = items.map((item) => {
         const product = productById.get(item.productId);
@@ -119,27 +173,45 @@ class InventoryDocumentService extends BaseService {
           sku: product.sku,
           name: product.name,
           quantity: item.quantity,
-          unitCost: this.direction === MOVEMENT_DIRECTION.IN ? unitAmount : product.purchasePrice,
-          ...(this.direction === MOVEMENT_DIRECTION.OUT ? { unitPrice: unitAmount } : {}),
+          unitCost: isOut ? unitCostOf(product) : unitAmount,
+          ...(isOut ? { unitPrice: unitAmount } : {}),
           lineTotal,
         };
       });
 
-      for (const product of products) {
-        const quantity = quantities.get(product._id);
-        if (this.direction === MOVEMENT_DIRECTION.OUT && product.stock < quantity) {
-          throw HttpError.conflict(`Insufficient stock for ${product.name}`);
+      // Consumo real de stock por producto físico (simple/ingredient), expandiendo
+      // las recetas de los platos. Un plato (prepared) no descuenta stock propio.
+      const stockConsumption = new Map();
+      const addConsumption = (productId, qty) => {
+        stockConsumption.set(productId, (stockConsumption.get(productId) || 0) + qty);
+      };
+      for (const [productId, qty] of quantities) {
+        const product = productById.get(productId);
+        if (isOut && product.type === PRODUCT_TYPE.PREPARED) {
+          for (const ri of product.recipe ?? []) {
+            addConsumption(ri.ingredientId, ri.quantity * qty);
+          }
+        } else {
+          addConsumption(productId, qty);
+        }
+      }
+
+      // Aplicar el cambio de stock. En salida se condiciona a stock suficiente.
+      for (const [productId, qty] of stockConsumption) {
+        const product = productById.get(productId) || ingredientById.get(productId);
+        if (isOut && (product?.stock ?? 0) < qty) {
+          throw HttpError.conflict(`Insufficient stock for ${product?.name ?? `product ${productId}`}`);
         }
         const stockFilter = {
-          _id: product._id,
+          _id: productId,
           userId,
           status: PRODUCT_STATUS.ACTIVE,
           recordStatus: RECORD_STATUS.ACTIVE,
         };
-        if (this.direction === MOVEMENT_DIRECTION.OUT) stockFilter.stock = { $gte: quantity };
+        if (isOut) stockFilter.stock = { $gte: qty };
         const result = await Product.updateOne(
           stockFilter,
-          { $inc: { stock: this.direction === MOVEMENT_DIRECTION.IN ? quantity : -quantity } },
+          { $inc: { stock: isOut ? -qty : qty } },
           { session },
         );
         if (result.modifiedCount !== 1) throw HttpError.conflict('Stock changed; retry the document');
@@ -165,19 +237,32 @@ class InventoryDocumentService extends BaseService {
         documentData[this.contactField] = contactId;
         documentData[this.contactField === 'supplierId' ? 'supplierSnapshot' : 'customerSnapshot'] = this.#contactSnapshot(contact);
       }
+      // Restaurante: si la venta entra a cocina, nace como comanda pendiente.
+      if (data.kitchenStatus != null) {
+        documentData.kitchenStatus = data.kitchenStatus;
+        documentData.kitchenTimeline = {};
+      }
+      if (typeof data.tableNumber === 'string' && data.tableNumber.trim()) {
+        documentData.tableNumber = data.tableNumber.trim().slice(0, 20);
+      }
 
       const [document] = await this.documentModel.create([documentData], { session });
-      const movementItems = items.map((item) => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        direction: this.direction,
-        ...(this.direction === MOVEMENT_DIRECTION.IN
-          ? { unitCost: item.unitCost }
-          : {
-            unitCost: productById.get(item.productId).purchasePrice,
-            unitPrice: item.unitPrice,
-          }),
-      }));
+      // El movimiento refleja el consumo físico real de stock (insumos expandidos
+      // para platos). En compra el consumo coincide con los ítems del documento.
+      const movementItems = [...stockConsumption.entries()].map(([productId, qty]) => {
+        const product = productById.get(productId) || ingredientById.get(productId);
+        const unitCost = this.#roundMoney(
+          isOut
+            ? (product?.purchasePrice ?? 0)
+            : (items.find((it) => it.productId === productId)?.unitCost ?? product?.purchasePrice ?? 0),
+        );
+        return {
+          productId,
+          quantity: qty,
+          direction: this.direction,
+          unitCost,
+        };
+      });
       await Movement.create([{
         _id: movementId,
         userId,

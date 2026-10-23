@@ -79,7 +79,8 @@ class AuthService {
     const newJti = String(result.newSession.id);
     const user = await usersService.getById(payload.id);
     const tenantId = user.tenantId ?? user.id;
-    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, tenantId, employeeId: user.employeeId ?? null }, newJti);
+    const businessType = await this.#resolveBusinessType(user, tenantId);
+    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, tenantId, employeeId: user.employeeId ?? null, businessType }, newJti);
     const newRefreshToken = jwtManager.signRefreshToken({ id: user.id }, newJti);
 
     return { accessToken, refreshToken: newRefreshToken };
@@ -148,7 +149,8 @@ class AuthService {
     const session = await tokensService.createSession(user.id, audience, deviceInfo);
     const jti = String(session.id);
     const tenantId = user.tenantId ?? user.id;
-    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, tenantId, employeeId: user.employeeId ?? null }, jti);
+    const businessType = await this.#resolveBusinessType(user, tenantId);
+    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, tenantId, employeeId: user.employeeId ?? null, businessType }, jti);
     const refreshToken = jwtManager.signRefreshToken({ id: user.id }, jti);
     return { accessToken, refreshToken };
   }
@@ -164,6 +166,18 @@ class AuthService {
   }
 
   /**
+   * Tipo de negocio del tenant (lo define el dueño). Para el dueño se lee directo;
+   * para un empleado se resuelve desde el dueño de su cuenta. Solo en login/refresh.
+   */
+  async #resolveBusinessType(user, tenantId) {
+    if (user.businessType && (user.tenantId == null || user.tenantId === user.id)) {
+      return user.businessType;
+    }
+    const owner = await usersService.findById(tenantId);
+    return owner?.businessType ?? 'retail';
+  }
+
+  /**
    * Resuelve la empresa (tenant) a la que pertenece el usuario para mostrarla
    * tras el login. Para el dueño es su propia cuenta; para un empleado, la del admin.
    */
@@ -173,6 +187,7 @@ class AuthService {
     return {
       id: tenantId,
       name: owner?.companyName || owner?.fullName || '',
+      businessType: owner?.businessType ?? 'retail',
     };
   }
 }

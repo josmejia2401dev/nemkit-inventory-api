@@ -19,7 +19,14 @@ class DeliveriesService extends BaseService {
     this.notFoundMessage = 'Delivery not found';
   }
 
-  async list(userId, query = {}) {
+  /**
+   * @param {number} userId - tenant/empresa
+   * @param {Object} query - filtros (status, courierId, customerId)
+   * @param {Object} [ctx] - contexto de acceso
+   * @param {number} [ctx.restrictToCourierId] - si viene, limita a los domicilios
+   *   de ese domiciliario (lo usa el rol COURIER para ver solo los suyos).
+   */
+  async list(userId, query = {}, ctx = {}) {
     const { page, limit } = pagination(query);
     const filter = { userId, recordStatus: RECORD_STATUS.ACTIVE };
 
@@ -29,7 +36,9 @@ class DeliveriesService extends BaseService {
       }
       filter.status = query.status;
     }
-    if (query.courierId !== undefined) {
+    if (ctx.restrictToCourierId != null) {
+      filter.courierId = positiveInteger(ctx.restrictToCourierId, 'courierId');
+    } else if (query.courierId !== undefined) {
       filter.courierId = positiveInteger(query.courierId, 'courierId');
     }
     if (query.customerId !== undefined) {
@@ -39,13 +48,17 @@ class DeliveriesService extends BaseService {
     return this.filterAndPaginate(filter, { page, limit, sort: { createdAt: -1 } });
   }
 
-  async getOwned(id, userId) {
+  async getOwned(id, userId, ctx = {}) {
     const deliveryId = positiveInteger(id, 'deliveryId');
-    const delivery = await this.findOne({
+    const filter = {
       _id: deliveryId,
       userId,
       recordStatus: RECORD_STATUS.ACTIVE,
-    });
+    };
+    if (ctx.restrictToCourierId != null) {
+      filter.courierId = positiveInteger(ctx.restrictToCourierId, 'courierId');
+    }
+    const delivery = await this.findOne(filter);
     if (!delivery) throw HttpError.notFound('Delivery not found');
     return delivery;
   }
@@ -59,11 +72,11 @@ class DeliveriesService extends BaseService {
     }, userId);
   }
 
-  async changeStatus(id, nextStatus, userId) {
+  async changeStatus(id, nextStatus, userId, ctx = {}) {
     if (!DELIVERY_STATUSES.includes(nextStatus)) {
       throw HttpError.badRequest(`status must be one of: ${DELIVERY_STATUSES.join(', ')}`);
     }
-    const delivery = await this.getOwned(id, userId);
+    const delivery = await this.getOwned(id, userId, ctx);
     const allowed = DELIVERY_TRANSITIONS[delivery.status] ?? [];
     if (!allowed.includes(nextStatus)) {
       throw HttpError.conflict(`Cannot change status from ${delivery.status} to ${nextStatus}`);
@@ -88,8 +101,8 @@ class DeliveriesService extends BaseService {
    * reversa la venta asociada (repone stock, registra movimiento de reversa,
    * revierte métricas del cliente) y marca el domicilio como cancelado.
    */
-  async voidDelivery(id, userId, { reason = '' } = {}) {
-    const delivery = await this.getOwned(id, userId);
+  async voidDelivery(id, userId, { reason = '', restrictToCourierId } = {}) {
+    const delivery = await this.getOwned(id, userId, { restrictToCourierId });
     if (delivery.status !== DELIVERY_STATUS.DELIVERED) {
       throw HttpError.conflict('Only a delivered order can be voided');
     }
@@ -102,8 +115,8 @@ class DeliveriesService extends BaseService {
     }, userId);
   }
 
-  async setProof(id, proof, userId) {
-    const delivery = await this.getOwned(id, userId);
+  async setProof(id, proof, userId, ctx = {}) {
+    const delivery = await this.getOwned(id, userId, ctx);
     if (delivery.status !== DELIVERY_STATUS.DELIVERED) {
       throw HttpError.badRequest('Proof can only be attached to a delivered order');
     }

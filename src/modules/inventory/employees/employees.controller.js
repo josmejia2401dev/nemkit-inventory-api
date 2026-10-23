@@ -69,6 +69,14 @@ class EmployeesController {
     }
   }
 
+  async options(req, res, next) {
+    try {
+      return success(res, await service.options(req.user.id, req.query));
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async create(req, res, next) {
     try {
       const { errorResponse, sanitized } = createSchema.check(req.body, req);

@@ -2,10 +2,11 @@
 
 const { success, created, paginated, createValidator } = require('nemkit');
 const { productsService: service } = require('./products.service');
-const { PRODUCT_STATUSES } = require('../inventory.constants');
+const { PRODUCT_STATUSES, PRODUCT_TYPES } = require('../inventory.constants');
 
 const fields = {
   categoryId: { type: 'number', min: 1 },
+  type: { type: 'string', enum: PRODUCT_TYPES },
   sku: { type: 'string', trim: true, minLength: 1, maxLength: 64 },
   barcode: { type: 'string', trim: true, maxLength: 64 },
   name: { type: 'string', trim: true, minLength: 1, maxLength: 160 },
@@ -51,6 +52,7 @@ class ProductsController {
     try {
       const { errorResponse, sanitized } = createSchema.check(req.body, req);
       if (errorResponse) return res.status(400).json(errorResponse);
+      if (Array.isArray(req.body?.recipe)) sanitized.recipe = req.body.recipe;
 
       const product = await service.create(sanitized, req.user.id);
       return created(res, product);
@@ -63,6 +65,7 @@ class ProductsController {
     try {
       const { errorResponse, sanitized } = updateSchema.check(req.body, req);
       if (errorResponse) return res.status(400).json(errorResponse);
+      if (Array.isArray(req.body?.recipe)) sanitized.recipe = req.body.recipe;
 
       const product = await service.update(+req.params.id, sanitized, req.user.id);
       return success(res, product);

@@ -24,6 +24,14 @@ const SaleSchema = applyPlatformSchema({
   },
   employeeId: { type: Number, default: null, index: true },
   employeeSnapshot: { name: { type: String, default: '' } },
+  // Restaurante: comanda en cocina. null = venta normal (no pasa por cocina).
+  kitchenStatus: { type: String, enum: ['pending', 'preparing', 'ready', 'served'], default: null, index: true },
+  tableNumber: { type: String, trim: true, default: '', maxlength: 20 },
+  kitchenTimeline: {
+    startedAt: { type: Date, default: null },
+    readyAt: { type: Date, default: null },
+    servedAt: { type: Date, default: null },
+  },
   date: { type: Date, required: true, index: true },
   status: { type: String, enum: Object.values(DOCUMENT_STATUS), default: DOCUMENT_STATUS.COMPLETED },
   notes: { type: String, trim: true, default: '', maxlength: 1000 },
@@ -34,5 +42,7 @@ const SaleSchema = applyPlatformSchema({
 SaleSchema.index({ userId: 1, date: -1 });
 SaleSchema.index({ userId: 1, customerId: 1, date: -1 });
 SaleSchema.index({ userId: 1, employeeId: 1, date: -1 });
+// Cola de cocina: comandas activas ordenadas por fecha.
+SaleSchema.index({ userId: 1, kitchenStatus: 1, date: 1 });
 
 module.exports = mongoose.model('inventory_sales', SaleSchema);

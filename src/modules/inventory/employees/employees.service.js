@@ -6,6 +6,7 @@ const User = require('../../foundation/users/users.model');
 const { pagination, positiveInteger, escapeRegex, assertNoEmptyUpdate } = require('../validation');
 const {
   EMPLOYEE_ROLES,
+  EMPLOYEE_STATUS,
   EMPLOYEE_STATUSES,
   EMPLOYEE_ROLE_TO_USER_ROLES,
 } = require('../inventory.constants');
@@ -54,6 +55,28 @@ class EmployeesService extends BaseService {
     }
 
     return this.filterAndPaginate(filter, { page, limit, sort: { name: 1 } });
+  }
+
+  /**
+   * Lista ligera de empleados activos para selectores (quién vende, quién
+   * entrega). Devuelve solo id, nombre y rol. Es consulta, no gestión: por eso
+   * se expone en un recurso aparte accesible a los roles que registran ventas.
+   */
+  async options(userId, query = {}) {
+    const filter = { userId, status: EMPLOYEE_STATUS.ACTIVE, recordStatus: RECORD_STATUS.ACTIVE };
+    if (query.role !== undefined) {
+      if (!EMPLOYEE_ROLES.includes(query.role)) {
+        throw HttpError.badRequest(`role must be one of: ${EMPLOYEE_ROLES.join(', ')}`);
+      }
+      filter.role = query.role;
+    }
+    const employees = await this.repository.model
+      .find(filter)
+      .select('_id name role')
+      .sort({ name: 1 })
+      .limit(500)
+      .lean();
+    return employees.map((e) => ({ id: e._id, name: e.name, role: e.role }));
   }
 
   async getOwned(id, userId) {

@@ -6,9 +6,11 @@ const UserSchema = applyPlatformSchema({
   fullName:     { type: String, required: true, trim: true },
   email:        { type: String, required: true, trim: true, lowercase: true },
   passwordHash: { type: String, required: true, select: false },
-  roles:        [{ type: String, enum: ['SUPERADMIN', 'ADMIN', 'USER', 'CASHIER', 'SELLER', 'COURIER', 'WAREHOUSE', 'WAITER'], default: 'USER' }],
+  roles:        [{ type: String, enum: ['SUPERADMIN', 'ADMIN', 'USER', 'CASHIER', 'SELLER', 'COURIER', 'WAREHOUSE', 'WAITER', 'COOK'], default: 'USER' }],
   // Nombre de la empresa (solo lo diligencia el dueño de la cuenta).
   companyName:  { type: String, trim: true, default: '', maxlength: 160 },
+  // Tipo de negocio del dueño: activa funciones específicas (p. ej. cocina).
+  businessType: { type: String, enum: ['retail', 'restaurant'], default: 'retail' },
   // Empleado vinculado (si el usuario es un acceso creado para un empleado).
   employeeId:   { type: Number, default: null, index: true },
   security: {

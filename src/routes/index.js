@@ -11,6 +11,8 @@ const {
 } = require('nemkit');
 const { authenticate } = require('../middlewares/auth.middleware');
 const { scopeToTenant } = require('../middlewares/tenant.middleware');
+const { requireRole } = require('../middlewares/authorize.middleware');
+const { authorizeResource } = require('../modules/inventory/permissions');
 const authRoutes = require('../modules/foundation/auth/auth.routes');
 const { usersService } = require('../modules/foundation/users/users.service');
 const productsRoutes = require('../modules/inventory/products/products.routes');
@@ -21,8 +23,10 @@ const suppliersRoutes = require('../modules/inventory/suppliers/suppliers.routes
 const customersRoutes = require('../modules/inventory/customers/customers.routes');
 const purchasesRoutes = require('../modules/inventory/purchases/purchases.routes');
 const salesRoutes = require('../modules/inventory/sales/sales.routes');
+const kitchenRoutes = require('../modules/inventory/sales/kitchen.routes');
 const reportsRoutes = require('../modules/inventory/reports/reports.routes');
 const employeesRoutes = require('../modules/inventory/employees/employees.routes');
+const { employeesController } = require('../modules/inventory/employees/employees.controller');
 const deliveriesRoutes = require('../modules/inventory/deliveries/deliveries.routes');
 
 const router = express.Router();
@@ -109,16 +113,18 @@ router.put('/profile/password', async (req, res, next) => {
 // A partir de aquí, el dominio de inventario opera sobre la empresa (tenant).
 router.use(scopeToTenant);
 
-router.use('/products', productsRoutes);
-router.use('/categories', categoriesRoutes);
-router.use('/movements', movementsRoutes);
-router.use('/dashboard', dashboardRoutes);
-router.use('/suppliers', suppliersRoutes);
-router.use('/customers', customersRoutes);
-router.use('/purchases', purchasesRoutes);
-router.use('/sales', salesRoutes);
-router.use('/reports', reportsRoutes);
-router.use('/employees', employeesRoutes);
-router.use('/deliveries', deliveriesRoutes);
+router.use('/products', authorizeResource('products'), productsRoutes);
+router.use('/categories', authorizeResource('categories'), categoriesRoutes);
+router.use('/movements', authorizeResource('movements'), movementsRoutes);
+router.use('/dashboard', authorizeResource('dashboard'), dashboardRoutes);
+router.use('/suppliers', authorizeResource('suppliers'), suppliersRoutes);
+router.use('/customers', authorizeResource('customers'), customersRoutes);
+router.use('/purchases', authorizeResource('purchases'), purchasesRoutes);
+router.use('/sales', authorizeResource('sales'), salesRoutes);
+router.use('/kitchen', authorizeResource('kitchen'), kitchenRoutes);
+router.use('/reports', requireRole('ADMIN', 'SUPERADMIN'), reportsRoutes);
+router.use('/employees', requireRole('ADMIN', 'SUPERADMIN'), employeesRoutes);
+router.get('/employee-options', authorizeResource('employee-options'), employeesController.options.bind(employeesController));
+router.use('/deliveries', authorizeResource('deliveries'), deliveriesRoutes);
 
 module.exports = router;

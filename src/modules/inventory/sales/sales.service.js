@@ -16,6 +16,9 @@ const {
   DELIVERY_STATUS,
   EMPLOYEE_ROLE,
   EMPLOYEE_STATUS,
+  KITCHEN_STATUS,
+  KITCHEN_STATUSES,
+  KITCHEN_TRANSITIONS,
   resolveLoyaltyTier,
 } = require('../inventory.constants');
 
@@ -201,6 +204,55 @@ class SalesService extends InventoryDocumentService {
 
   #round(value) {
     return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
+  /**
+   * Cola de cocina: comandas activas (no servidas) ordenadas por antigüedad.
+   * Por defecto excluye las ya servidas; `includeServed` las incluye.
+   */
+  async kitchenQueue(userId, query = {}) {
+    const filter = {
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      kitchenStatus: { $ne: null },
+    };
+    if (!query.includeServed) {
+      filter.kitchenStatus = { $in: [KITCHEN_STATUS.PENDING, KITCHEN_STATUS.PREPARING, KITCHEN_STATUS.READY] };
+    }
+    const sales = await Sale.find(filter)
+      .select('_id date tableNumber kitchenStatus kitchenTimeline items total customerSnapshot employeeSnapshot notes')
+      .sort({ date: 1 })
+      .limit(200)
+      .lean();
+    return sales.map(({ _id, ...rest }) => ({ id: _id, ...rest }));
+  }
+
+  /**
+   * Cambia el estado de cocina de una comanda validando transiciones y sellando
+   * los hitos de tiempo. Solo aplica a ventas que entraron a cocina.
+   */
+  async changeKitchenStatus(saleId, nextStatus, userId) {
+    const id = positiveInteger(saleId, 'saleId');
+    if (!KITCHEN_STATUSES.includes(nextStatus)) {
+      throw HttpError.badRequest(`kitchenStatus must be one of: ${KITCHEN_STATUSES.join(', ')}`);
+    }
+    const sale = await Sale.findOne({ _id: id, userId, recordStatus: RECORD_STATUS.ACTIVE }).lean();
+    if (!sale) throw HttpError.notFound('Sale not found');
+    if (sale.kitchenStatus == null) throw HttpError.badRequest('This sale is not a kitchen order');
+
+    const allowed = KITCHEN_TRANSITIONS[sale.kitchenStatus] ?? [];
+    if (!allowed.includes(nextStatus)) {
+      throw HttpError.conflict(`Cannot change kitchen status from ${sale.kitchenStatus} to ${nextStatus}`);
+    }
+
+    const update = { kitchenStatus: nextStatus };
+    const now = new Date();
+    if (nextStatus === KITCHEN_STATUS.PREPARING) update['kitchenTimeline.startedAt'] = now;
+    if (nextStatus === KITCHEN_STATUS.READY) update['kitchenTimeline.readyAt'] = now;
+    if (nextStatus === KITCHEN_STATUS.SERVED) update['kitchenTimeline.servedAt'] = now;
+
+    await Sale.updateOne({ _id: id, userId }, { $set: { ...update, updatedBy: userId } });
+    return { id, kitchenStatus: nextStatus };
   }
 }
 

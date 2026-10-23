@@ -34,6 +34,7 @@ class UsersService extends BaseService {
           fullName: payload.fullName,
           email,
           companyName: payload.companyName ?? '',
+          businessType: payload.businessType === 'restaurant' ? 'restaurant' : 'retail',
           passwordHash,
           roles: ['ADMIN'],
           security: { mustChangePassword: false },

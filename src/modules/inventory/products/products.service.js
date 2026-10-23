@@ -11,7 +11,14 @@ const {
   validateProductFields,
   translateDuplicateKey,
 } = require('../validation');
-const { PRODUCT_STATUS, PRODUCT_STATUSES, STOCK_STATE, STOCK_STATES } = require('../inventory.constants');
+const {
+  PRODUCT_STATUS,
+  PRODUCT_STATUSES,
+  PRODUCT_TYPE,
+  PRODUCT_TYPES,
+  STOCK_STATE,
+  STOCK_STATES,
+} = require('../inventory.constants');
 
 class ProductsService extends BaseService {
   constructor() {
@@ -33,6 +40,22 @@ class ProductsService extends BaseService {
 
     if (query.productId !== undefined) {
       filter._id = positiveInteger(query.productId, 'productId');
+    }
+
+    if (query.type !== undefined) {
+      if (!PRODUCT_TYPES.includes(query.type)) {
+        throw HttpError.badRequest(`type must be one of: ${PRODUCT_TYPES.join(', ')}`);
+      }
+      filter.type = query.type;
+    }
+
+    // Filtro por conjunto de tipos (p. ej. selector de ventas: simple+prepared).
+    if (query.types !== undefined) {
+      const list = String(query.types).split(',').map((t) => t.trim()).filter(Boolean);
+      if (list.some((t) => !PRODUCT_TYPES.includes(t))) {
+        throw HttpError.badRequest(`types must be a subset of: ${PRODUCT_TYPES.join(', ')}`);
+      }
+      if (list.length) filter.type = { $in: list };
     }
 
     if (status && !PRODUCT_STATUSES.includes(status)) {
@@ -93,6 +116,7 @@ class ProductsService extends BaseService {
 
   async create(data, userId) {
     validateProductFields(data);
+    const type = this.#validateType(data.type);
     const categoryId = positiveInteger(data.categoryId, 'categoryId');
     const category = await this.categories.findOne({
       _id: categoryId,
@@ -102,12 +126,18 @@ class ProductsService extends BaseService {
 
     if (!category) throw HttpError.badRequest('Invalid or inactive category');
 
+    const recipe = type === PRODUCT_TYPE.PREPARED
+      ? await this.#validateRecipe(data.recipe, userId)
+      : [];
+
     try {
       return await this.repository.create({
         ...data,
+        type,
         categoryId,
         userId,
         stock: 0,
+        recipe,
       }, userId);
     } catch (error) {
       return translateDuplicateKey(error);
@@ -117,10 +147,11 @@ class ProductsService extends BaseService {
   async update(id, data, userId) {
     validateProductFields(data);
     const productId = positiveInteger(id, 'productId');
-    await this.getOwned(productId, userId);
+    const current = await this.getOwned(productId, userId);
 
     assertNoEmptyUpdate(data, [
       'categoryId',
+      'type',
       'sku',
       'barcode',
       'name',
@@ -129,6 +160,7 @@ class ProductsService extends BaseService {
       'salePrice',
       'minimumStock',
       'status',
+      'recipe',
       'image',
     ]);
 
@@ -141,6 +173,21 @@ class ProductsService extends BaseService {
       });
 
       if (!categoryExists) throw HttpError.badRequest('Invalid or inactive category');
+    }
+
+    // Tipo efectivo tras la edición (el enviado o el actual).
+    const effectiveType = data.type !== undefined
+      ? this.#validateType(data.type)
+      : current.type;
+    if (data.type !== undefined) data.type = effectiveType;
+
+    // La receta solo aplica a platos; se valida si el producto queda como prepared.
+    if (effectiveType === PRODUCT_TYPE.PREPARED) {
+      const recipeSource = data.recipe !== undefined ? data.recipe : current.recipe;
+      data.recipe = await this.#validateRecipe(recipeSource, userId, productId);
+    } else if (data.recipe !== undefined || data.type !== undefined) {
+      // Si deja de ser prepared, limpiar la receta.
+      data.recipe = [];
     }
 
     const { userId: _userId, stock: _stock, ...safeData } = data;
@@ -161,6 +208,61 @@ class ProductsService extends BaseService {
     }
 
     return this.softDelete(productId, userId);
+  }
+
+  #validateType(type) {
+    if (type === undefined || type === null || type === '') return PRODUCT_TYPE.SIMPLE;
+    if (!PRODUCT_TYPES.includes(type)) {
+      throw HttpError.badRequest(`type must be one of: ${PRODUCT_TYPES.join(', ')}`);
+    }
+    return type;
+  }
+
+  /**
+   * Valida la receta de un plato: lista no vacía de insumos existentes (tipo
+   * ingredient o simple, activos, del mismo tenant) con cantidad positiva. No se
+   * permiten sub-recetas (un insumo no puede ser prepared). `selfId` evita que un
+   * plato se use a sí mismo como insumo.
+   */
+  async #validateRecipe(recipe, userId, selfId = null) {
+    if (!Array.isArray(recipe) || recipe.length === 0) {
+      throw HttpError.badRequest('A prepared product requires a recipe with at least one ingredient');
+    }
+    if (recipe.length > 100) throw HttpError.badRequest('recipe can contain at most 100 ingredients');
+
+    const normalized = recipe.map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw HttpError.badRequest('Each recipe item must be an object');
+      }
+      const allowed = new Set(['ingredientId', 'quantity']);
+      if (Object.keys(item).some((key) => !allowed.has(key))) {
+        throw HttpError.badRequest('Recipe item contains unsupported fields');
+      }
+      const ingredientId = positiveInteger(item.ingredientId, 'ingredientId');
+      if (selfId != null && ingredientId === positiveInteger(selfId, 'productId')) {
+        throw HttpError.badRequest('A product cannot be an ingredient of itself');
+      }
+      const quantity = item.quantity;
+      if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0) {
+        throw HttpError.badRequest('recipe quantity must be a positive number');
+      }
+      return { ingredientId, quantity };
+    });
+
+    const ids = [...new Set(normalized.map((item) => item.ingredientId))];
+    const ingredients = await this.repository.model.find({
+      userId,
+      _id: { $in: ids },
+      type: { $in: [PRODUCT_TYPE.INGREDIENT, PRODUCT_TYPE.SIMPLE] },
+      status: PRODUCT_STATUS.ACTIVE,
+      recordStatus: RECORD_STATUS.ACTIVE,
+    }).select('_id').lean();
+
+    if (ingredients.length !== ids.length) {
+      throw HttpError.badRequest('One or more recipe ingredients are invalid, inactive or not purchasable');
+    }
+
+    return normalized;
   }
 }
 
