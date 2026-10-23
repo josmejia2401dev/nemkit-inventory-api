@@ -15,6 +15,7 @@ const {
   MOVEMENT_DIRECTION,
   DOCUMENT_STATUS,
   PAYMENT_STATUS,
+  CANCEL_REASONS,
   DELIVERY_STATUS,
   EMPLOYEE_ROLE,
   EMPLOYEE_STATUS,
@@ -122,10 +123,13 @@ class SalesService extends InventoryDocumentService {
    * @param {number} saleId
    * @param {number} userId - tenant
    * @param {Object} [options]
-   * @param {string} [options.reason]
+   * @param {string} [options.reason]     - código de motivo (CANCEL_REASON)
+   * @param {string} [options.note]       - nota libre opcional (p. ej. para 'other')
    */
-  async voidSale(saleId, userId, { reason = '' } = {}) {
+  async voidSale(saleId, userId, { reason = '', note = '' } = {}) {
     const id = positiveInteger(saleId, 'saleId');
+    const reasonCode = CANCEL_REASONS.includes(reason) ? reason : '';
+    const voidNote = typeof note === 'string' ? note.trim().slice(0, 300) : '';
 
     return this.repository.withTransaction(async (session) => {
       const sale = await Sale.findOne({
@@ -186,7 +190,7 @@ class SalesService extends InventoryDocumentService {
           userId,
           date: new Date(),
           type: MOVEMENT_TYPE.SALE_VOID,
-          notes: reason ? `Anulación venta #${id}: ${reason}` : `Anulación venta #${id}`,
+          notes: reasonCode || voidNote ? `Anulación venta #${id}: ${[reasonCode, voidNote].filter(Boolean).join(' - ')}` : `Anulación venta #${id}`,
           employeeId: sale.employeeId ?? null,
           employeeSnapshot: sale.employeeSnapshot ?? { name: '' },
           sourceType: null,
@@ -202,10 +206,16 @@ class SalesService extends InventoryDocumentService {
         }], { session });
       }
 
-      // Marcar la venta como anulada.
+      // Marcar la venta como anulada, guardando el motivo de cancelación.
       await Sale.updateOne(
         { _id: id, userId },
-        { status: DOCUMENT_STATUS.VOID, updatedBy: userId },
+        {
+          status: DOCUMENT_STATUS.VOID,
+          voidReason: reasonCode,
+          voidNote,
+          voidedAt: new Date(),
+          updatedBy: userId,
+        },
         { session },
       );
 
@@ -252,6 +262,7 @@ class SalesService extends InventoryDocumentService {
       userId,
       recordStatus: RECORD_STATUS.ACTIVE,
       kitchenStatus: { $ne: null },
+      status: { $ne: DOCUMENT_STATUS.VOID }, // las comandas canceladas salen de la cola
     };
     if (!query.includeServed) {
       filter.kitchenStatus = { $in: [KITCHEN_STATUS.PENDING, KITCHEN_STATUS.PREPARING, KITCHEN_STATUS.READY] };

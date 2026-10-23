@@ -9,5 +9,7 @@ const router = express.Router();
 // ya que la comanda ES la venta (modo restaurante).
 router.get('/', c.kitchenQueue.bind(c));
 router.put('/:id', c.changeKitchen.bind(c));
+// Cancelar la comanda/pedido con motivo (repone stock). Mismo flujo que ventas.
+router.put('/:id/cancel', c.cancel.bind(c));
 
 module.exports = router;

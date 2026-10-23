@@ -34,6 +34,10 @@ const SaleSchema = applyPlatformSchema({
   },
   date: { type: Date, required: true, index: true },
   status: { type: String, enum: Object.values(DOCUMENT_STATUS), default: DOCUMENT_STATUS.COMPLETED },
+  // Cancelación del pedido/venta: motivo predefinido y nota opcional del mesero.
+  voidReason: { type: String, default: '' },
+  voidNote: { type: String, trim: true, default: '', maxlength: 300 },
+  voidedAt: { type: Date, default: null },
   // Estado de cobro: paid (tienda al instante; restaurante tras cobrar) o pending.
   paymentStatus: { type: String, enum: ['paid', 'pending'], default: 'paid', index: true },
   paidAt: { type: Date, default: null },

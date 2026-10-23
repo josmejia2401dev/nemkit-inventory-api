@@ -51,6 +51,18 @@ const PAYMENT_STATUS = Object.freeze({
   PENDING: 'pending', // pedido abierto por cobrar (restaurante)
 });
 
+/**
+ * Motivos predefinidos para cancelar un pedido/venta. Se guarda el código; el
+ * front muestra la etiqueta legible. 'other' permite un motivo escrito a mano.
+ */
+const CANCEL_REASON = Object.freeze({
+  CUSTOMER_LEFT: 'customer_left',       // el cliente abandonó el lugar
+  ORDER_ERROR: 'order_error',           // error al tomar el pedido
+  OUT_OF_STOCK: 'out_of_stock',         // sin insumos/stock para prepararlo
+  CUSTOMER_CHANGED: 'customer_changed', // el cliente cambió de opinión
+  OTHER: 'other',                       // otro (motivo escrito a mano)
+});
+
 /** Cargos operativos de un empleado dentro de una cuenta/negocio. */
 const EMPLOYEE_ROLE = Object.freeze({
   ADMIN: 'admin',
@@ -166,6 +178,7 @@ const EMPLOYEE_ROLES = Object.freeze(Object.values(EMPLOYEE_ROLE));
 const BUSINESS_TYPES = Object.freeze(Object.values(BUSINESS_TYPE));
 const KITCHEN_STATUSES = Object.freeze(Object.values(KITCHEN_STATUS));
 const PAYMENT_STATUSES = Object.freeze(Object.values(PAYMENT_STATUS));
+const CANCEL_REASONS = Object.freeze(Object.values(CANCEL_REASON));
 const DOCUMENT_TYPES = Object.freeze(Object.values(DOCUMENT_TYPE));
 const EMPLOYEE_STATUSES = Object.freeze(Object.values(EMPLOYEE_STATUS));
 const LOYALTY_TIERS = Object.freeze(Object.values(LOYALTY_TIER));
@@ -201,6 +214,8 @@ module.exports = {
   DOCUMENT_STATUS,
   PAYMENT_STATUS,
   PAYMENT_STATUSES,
+  CANCEL_REASON,
+  CANCEL_REASONS,
   EMPLOYEE_ROLE,
   EMPLOYEE_ROLES,
   DOCUMENT_TYPE,

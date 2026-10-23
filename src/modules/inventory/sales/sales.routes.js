@@ -7,4 +7,6 @@ router.post('/', c.create.bind(c));
 router.get('/:id', c.get.bind(c));
 // Cobrar una venta "por cobrar" (restaurante). CASHIER/SELLER/WAITER/ADMIN vía permisos de 'sales'.
 router.put('/:id/pay', c.pay.bind(c));
+// Cancelar un pedido/venta con motivo (repone stock).
+router.put('/:id/cancel', c.cancel.bind(c));
 module.exports = router;
