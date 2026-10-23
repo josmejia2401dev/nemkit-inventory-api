@@ -10,9 +10,11 @@ const Employee = require('../employees/employees.model');
 const { InventoryDocumentService } = require('../documents/document.service');
 const { positiveInteger } = require('../validation');
 const {
+  PRODUCT_TYPE,
   MOVEMENT_TYPE,
   MOVEMENT_DIRECTION,
   DOCUMENT_STATUS,
+  PAYMENT_STATUS,
   DELIVERY_STATUS,
   EMPLOYEE_ROLE,
   EMPLOYEE_STATUS,
@@ -136,16 +138,44 @@ class SalesService extends InventoryDocumentService {
         throw HttpError.conflict('Sale is already void');
       }
 
-      // Reponer stock de cada producto vendido.
+      // Reponer stock EXPANDIENDO recetas, igual que se descontó en la venta:
+      // un plato (prepared) no repone stock propio, repone el de sus insumos.
+      const soldIds = [...new Set(sale.items.map((item) => item.productId))];
+      const soldProducts = await Product.find({ userId, _id: { $in: soldIds } })
+        .select('_id type recipe purchasePrice name')
+        .session(session)
+        .lean();
+      const soldById = new Map(soldProducts.map((p) => [p._id, p]));
+
+      // Consumo físico real a reponer (insumos para platos, el producto para simples).
+      const restock = new Map();
       for (const item of sale.items) {
+        const product = soldById.get(item.productId);
+        if (product && product.type === PRODUCT_TYPE.PREPARED) {
+          for (const ri of product.recipe ?? []) {
+            restock.set(ri.ingredientId, (restock.get(ri.ingredientId) || 0) + ri.quantity * item.quantity);
+          }
+        } else {
+          restock.set(item.productId, (restock.get(item.productId) || 0) + item.quantity);
+        }
+      }
+
+      for (const [productId, qty] of restock) {
         await Product.updateOne(
-          { _id: item.productId, userId },
-          { $inc: { stock: item.quantity } },
+          { _id: productId, userId },
+          { $inc: { stock: qty } },
           { session },
         );
       }
 
-      // Movimiento de reversa (entrada) que explica la devolución de existencias.
+      // Movimiento de reversa (entrada) con el consumo físico real (insumos expandidos).
+      const ingredientById = new Map(soldProducts.map((p) => [p._id, p]));
+      const missingIds = [...restock.keys()].filter((pid) => !ingredientById.has(pid));
+      if (missingIds.length) {
+        const extra = await Product.find({ userId, _id: { $in: missingIds } })
+          .select('_id purchasePrice').session(session).lean();
+        for (const p of extra) ingredientById.set(p._id, p);
+      }
       const voidMovementId = UniqueNumberUtil.generateRaw();
       await Movement.create([{
         _id: voidMovementId,
@@ -157,12 +187,11 @@ class SalesService extends InventoryDocumentService {
         employeeSnapshot: sale.employeeSnapshot ?? { name: '' },
         sourceType: null,
         sourceId: id,
-        items: sale.items.map((item) => ({
-          productId: item.productId,
-          quantity: item.quantity,
+        items: [...restock.entries()].map(([productId, qty]) => ({
+          productId,
+          quantity: qty,
           direction: MOVEMENT_DIRECTION.IN,
-          unitCost: item.unitCost,
-          unitPrice: item.unitPrice,
+          unitCost: ingredientById.get(productId)?.purchasePrice ?? 0,
         })),
         createdBy: userId,
         updatedBy: userId,
@@ -175,12 +204,15 @@ class SalesService extends InventoryDocumentService {
         { session },
       );
 
-      // Revertir métricas de fidelización del cliente.
-      const customer = await Customer.findOne({
-        _id: sale.customerId,
-        userId,
-        recordStatus: RECORD_STATUS.ACTIVE,
-      }).session(session).lean();
+      // Revertir métricas de fidelización solo si la venta llegó a cobrarse
+      // (una venta "por cobrar" nunca sumó al cliente).
+      const customer = sale.paymentStatus === PAYMENT_STATUS.PAID
+        ? await Customer.findOne({
+          _id: sale.customerId,
+          userId,
+          recordStatus: RECORD_STATUS.ACTIVE,
+        }).session(session).lean()
+        : null;
       if (customer) {
         const newSpent = Math.max(0, this.#round(previousSpentOf(customer) - sale.total));
         const newCount = Math.max(0, (customer.stats?.purchaseCount ?? 0) - 1);
@@ -220,7 +252,7 @@ class SalesService extends InventoryDocumentService {
       filter.kitchenStatus = { $in: [KITCHEN_STATUS.PENDING, KITCHEN_STATUS.PREPARING, KITCHEN_STATUS.READY] };
     }
     const sales = await Sale.find(filter)
-      .select('_id date tableNumber kitchenStatus kitchenTimeline items total customerSnapshot employeeSnapshot notes')
+      .select('_id date tableNumber kitchenStatus kitchenTimeline paymentStatus paidAt items total customerSnapshot employeeSnapshot notes')
       .sort({ date: 1 })
       .limit(200)
       .lean();
@@ -253,6 +285,63 @@ class SalesService extends InventoryDocumentService {
 
     await Sale.updateOne({ _id: id, userId }, { $set: { ...update, updatedBy: userId } });
     return { id, kitchenStatus: nextStatus };
+  }
+
+  /**
+   * Registra el cobro de una venta "por cobrar": la marca como pagada, sella la
+   * fecha y, al concretarse, suma las métricas de fidelización del cliente.
+   * Todo en una transacción. Idempotente frente a ventas ya pagadas.
+   */
+  async pay(saleId, userId) {
+    const id = positiveInteger(saleId, 'saleId');
+
+    return this.repository.withTransaction(async (session) => {
+      const sale = await Sale.findOne({
+        _id: id,
+        userId,
+        recordStatus: RECORD_STATUS.ACTIVE,
+      }).session(session).lean();
+      if (!sale) throw HttpError.notFound('Sale not found');
+      if (sale.status === DOCUMENT_STATUS.VOID) throw HttpError.conflict('Sale is void');
+      if (sale.paymentStatus === PAYMENT_STATUS.PAID) {
+        throw HttpError.conflict('Sale is already paid');
+      }
+
+      const now = new Date();
+      await Sale.updateOne(
+        { _id: id, userId },
+        { $set: { paymentStatus: PAYMENT_STATUS.PAID, paidAt: now, updatedBy: userId } },
+        { session },
+      );
+
+      // Al concretar el cobro, sumar las métricas de fidelización del cliente.
+      const customer = await Customer.findOne({
+        _id: sale.customerId,
+        userId,
+        recordStatus: RECORD_STATUS.ACTIVE,
+      }).session(session).lean();
+      if (customer) {
+        const newSpent = this.#round((customer.stats?.totalSpent ?? 0) + sale.total);
+        const newCount = (customer.stats?.purchaseCount ?? 0) + 1;
+        const firstPurchaseAt = customer.stats?.firstPurchaseAt ?? now;
+        await Customer.updateOne(
+          { _id: customer._id, userId },
+          {
+            $set: {
+              'stats.totalSpent': newSpent,
+              'stats.purchaseCount': newCount,
+              'stats.firstPurchaseAt': firstPurchaseAt,
+              'stats.lastPurchaseAt': now,
+              loyaltyTier: resolveLoyaltyTier(newSpent, newCount),
+              updatedBy: userId,
+            },
+          },
+          { session },
+        );
+      }
+
+      return { id, paymentStatus: PAYMENT_STATUS.PAID, paidAt: now };
+    });
   }
 }
 

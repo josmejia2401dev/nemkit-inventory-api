@@ -245,6 +245,14 @@ class InventoryDocumentService extends BaseService {
       if (typeof data.tableNumber === 'string' && data.tableNumber.trim()) {
         documentData.tableNumber = data.tableNumber.trim().slice(0, 20);
       }
+      // Estado de cobro: por defecto pagada (tienda). El restaurante la abre "por cobrar".
+      if (data.paymentStatus === 'pending') {
+        documentData.paymentStatus = 'pending';
+        documentData.paidAt = null;
+      } else {
+        documentData.paymentStatus = 'paid';
+        documentData.paidAt = date;
+      }
 
       const [document] = await this.documentModel.create([documentData], { session });
       // El movimiento refleja el consumo físico real de stock (insumos expandidos
@@ -280,7 +288,9 @@ class InventoryDocumentService extends BaseService {
         updatedBy: userId,
       }], { session });
 
-      if (this.updatesCustomerStats && contactId !== null && contact) {
+      // Las métricas de fidelización suman cuando la venta se cobra. Una venta
+      // pagada al instante (tienda) suma aquí; una "por cobrar" sumará al cobrar.
+      if (this.updatesCustomerStats && contactId !== null && contact && documentData.paymentStatus === 'paid') {
         await this.#updateCustomerStats(contact, total, date, userId, session);
       }
 

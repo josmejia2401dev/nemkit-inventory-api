@@ -45,6 +45,12 @@ const DOCUMENT_STATUS = Object.freeze({
   VOID: 'void',
 });
 
+/** Estado de cobro de una venta. */
+const PAYMENT_STATUS = Object.freeze({
+  PAID: 'paid',       // cobrada (tienda al instante; restaurante tras cobrar)
+  PENDING: 'pending', // pedido abierto por cobrar (restaurante)
+});
+
 /** Cargos operativos de un empleado dentro de una cuenta/negocio. */
 const EMPLOYEE_ROLE = Object.freeze({
   ADMIN: 'admin',
@@ -159,6 +165,7 @@ const EMPLOYEE_ROLE_TO_USER_ROLES = Object.freeze({
 const EMPLOYEE_ROLES = Object.freeze(Object.values(EMPLOYEE_ROLE));
 const BUSINESS_TYPES = Object.freeze(Object.values(BUSINESS_TYPE));
 const KITCHEN_STATUSES = Object.freeze(Object.values(KITCHEN_STATUS));
+const PAYMENT_STATUSES = Object.freeze(Object.values(PAYMENT_STATUS));
 const DOCUMENT_TYPES = Object.freeze(Object.values(DOCUMENT_TYPE));
 const EMPLOYEE_STATUSES = Object.freeze(Object.values(EMPLOYEE_STATUS));
 const LOYALTY_TIERS = Object.freeze(Object.values(LOYALTY_TIER));
@@ -192,6 +199,8 @@ module.exports = {
   MOVEMENT_DIRECTIONS,
   MOVEMENT_SOURCE_TYPE,
   DOCUMENT_STATUS,
+  PAYMENT_STATUS,
+  PAYMENT_STATUSES,
   EMPLOYEE_ROLE,
   EMPLOYEE_ROLES,
   DOCUMENT_TYPE,

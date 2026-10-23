@@ -158,10 +158,39 @@ class EmployeesService extends BaseService {
 
   async update(id, data, userId) {
     const employeeId = positiveInteger(id, 'employeeId');
-    await this.getOwned(employeeId, userId);
+    const current = await this.getOwned(employeeId, userId);
     assertNoEmptyUpdate(data, UPDATABLE_FIELDS);
+
+    // Validar el nuevo rol si viene.
+    if (data.role !== undefined && !EMPLOYEE_ROLE_TO_USER_ROLES[data.role]) {
+      throw HttpError.badRequest('Invalid employee role');
+    }
+
     try {
-      return await this.updateById(employeeId, data, userId);
+      const employee = await this.updateById(employeeId, data, userId);
+
+      // Sincronizar el acceso del empleado: si cambió el rol, actualizar los
+      // roles del usuario de login vinculado para que sus permisos coincidan.
+      if (data.role !== undefined && data.role !== current.role && current.linkedUserId) {
+        await User.updateOne(
+          { _id: current.linkedUserId },
+          { roles: EMPLOYEE_ROLE_TO_USER_ROLES[data.role], updatedBy: userId },
+        );
+      }
+      // Si se inactiva el empleado, inactivar también su acceso.
+      if (data.status === EMPLOYEE_STATUS.INACTIVE && current.linkedUserId) {
+        await User.updateOne(
+          { _id: current.linkedUserId },
+          { recordStatus: RECORD_STATUS.INACTIVE, updatedBy: userId },
+        );
+      } else if (data.status === EMPLOYEE_STATUS.ACTIVE && current.linkedUserId) {
+        await User.updateOne(
+          { _id: current.linkedUserId },
+          { recordStatus: RECORD_STATUS.ACTIVE, updatedBy: userId },
+        );
+      }
+
+      return employee;
     } catch (error) {
       if (error?.code === 11000) throw HttpError.conflict('Employee document number already exists');
       throw error;
@@ -170,7 +199,14 @@ class EmployeesService extends BaseService {
 
   async remove(id, userId) {
     const employeeId = positiveInteger(id, 'employeeId');
-    await this.getOwned(employeeId, userId);
+    const current = await this.getOwned(employeeId, userId);
+    // Eliminar el empleado desactiva su acceso al sistema (login vinculado).
+    if (current.linkedUserId) {
+      await User.updateOne(
+        { _id: current.linkedUserId },
+        { recordStatus: RECORD_STATUS.DELETED, updatedBy: userId },
+      );
+    }
     return this.softDelete(employeeId, userId);
   }
 }

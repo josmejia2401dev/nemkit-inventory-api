@@ -31,9 +31,11 @@ class SalesController extends InventoryDocumentController {
       if (req.body?.delivery && typeof req.body.delivery === 'object') {
         sanitized.delivery = req.body.delivery;
       }
-      // Restaurante: la venta entra a cocina como comanda pendiente.
+      // Restaurante: la venta entra a cocina como comanda y queda "por cobrar"
+      // hasta que se registre el pago al final.
       if (req.user.businessType === 'restaurant') {
         sanitized.kitchenStatus = 'pending';
+        sanitized.paymentStatus = 'pending';
       }
       return created(res, await this.service.create(sanitized, req.user.id));
     } catch (error) {
@@ -55,6 +57,15 @@ class SalesController extends InventoryDocumentController {
       const { errorResponse, sanitized } = kitchenSchema.check(req.body, req);
       if (errorResponse) return res.status(400).json(errorResponse);
       return success(res, await this.service.changeKitchenStatus(req.params.id, sanitized.kitchenStatus, req.user.id));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** Registra el cobro de una venta "por cobrar" (restaurante). */
+  async pay(req, res, next) {
+    try {
+      return success(res, await this.service.pay(req.params.id, req.user.id));
     } catch (error) {
       next(error);
     }

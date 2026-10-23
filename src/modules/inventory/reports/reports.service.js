@@ -5,7 +5,7 @@ const Product = require('../products/products.model');
 const Category = require('../categories/categories.model');
 const Movement = require('../movements/movements.model');
 const Sale = require('../sales/sales.model');
-const { MOVEMENT_TYPES } = require('../inventory.constants');
+const { MOVEMENT_TYPES, PRODUCT_TYPE, DOCUMENT_STATUS, PAYMENT_STATUS } = require('../inventory.constants');
 const { positiveInteger } = require('../validation');
 
 const REPORT_TIMEZONE = 'America/Bogota';
@@ -44,7 +44,8 @@ function pageOptions(query) {
 
 class ReportsService {
   async inventory(userId) {
-    const products = await Product.find({ userId, recordStatus: RECORD_STATUS.ACTIVE })
+    // Los platos (prepared) no llevan stock propio; se excluyen del inventario físico.
+    const products = await Product.find({ userId, recordStatus: RECORD_STATUS.ACTIVE, type: { $ne: PRODUCT_TYPE.PREPARED } })
       .select('_id sku name categoryId purchasePrice salePrice stock minimumStock status')
       .sort({ name: 1 })
       .lean();
@@ -140,6 +141,8 @@ class ReportsService {
     const match = {
       userId,
       recordStatus: RECORD_STATUS.ACTIVE,
+      status: { $ne: DOCUMENT_STATUS.VOID }, // no contar ventas anuladas
+      paymentStatus: PAYMENT_STATUS.PAID, // solo ventas cobradas cuentan como ingreso
       date: { $gte: range.from, $lt: range.toExclusive },
     };
     if (query.employeeId !== undefined) {
@@ -233,6 +236,8 @@ class ReportsService {
         $match: {
           userId,
           recordStatus: RECORD_STATUS.ACTIVE,
+          status: { $ne: DOCUMENT_STATUS.VOID }, // no contar ventas anuladas
+          paymentStatus: PAYMENT_STATUS.PAID, // solo ventas cobradas cuentan como ingreso
           date: { $gte: range.from, $lt: range.toExclusive },
         },
       },

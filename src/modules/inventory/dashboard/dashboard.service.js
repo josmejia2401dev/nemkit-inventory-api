@@ -9,23 +9,29 @@ const Delivery = require('../deliveries/deliveries.model');
 const { RECORD_STATUS } = require('nemkit');
 const {
   PRODUCT_STATUS,
+  PRODUCT_TYPE,
   MOVEMENT_TYPE,
+  DOCUMENT_STATUS,
+  PAYMENT_STATUS,
   LOYALTY_TIER,
   DELIVERY_STATUS,
 } = require('../inventory.constants');
 
 class DashboardService {
   async stockAlerts(userId) {
+    const notPrepared = { $ne: PRODUCT_TYPE.PREPARED };
     const [outOfStock, lowStock] = await Promise.all([
       Product.countDocuments({
         userId,
         status: PRODUCT_STATUS.ACTIVE,
+        type: notPrepared,
         stock: 0,
         recordStatus: RECORD_STATUS.ACTIVE,
       }),
       Product.countDocuments({
         userId,
         status: PRODUCT_STATUS.ACTIVE,
+        type: notPrepared,
         $expr: {
           $and: [
             { $gt: ['$stock', 0] },
@@ -43,6 +49,7 @@ class DashboardService {
     const products = await Product.find({
       userId,
       status: PRODUCT_STATUS.ACTIVE,
+      type: { $ne: PRODUCT_TYPE.PREPARED },
       recordStatus: RECORD_STATUS.ACTIVE,
       $or: [
         { stock: 0 },
@@ -93,7 +100,7 @@ class DashboardService {
 
   async employeeSales(userId, since) {
     const rows = await Sale.aggregate([
-      { $match: { userId, recordStatus: RECORD_STATUS.ACTIVE, date: { $gte: since }, employeeId: { $ne: null } } },
+      { $match: { userId, recordStatus: RECORD_STATUS.ACTIVE, status: { $ne: DOCUMENT_STATUS.VOID }, paymentStatus: PAYMENT_STATUS.PAID, date: { $gte: since }, employeeId: { $ne: null } } },
       {
         $group: {
           _id: '$employeeId',
@@ -165,6 +172,7 @@ class DashboardService {
       Product.countDocuments({
         userId,
         status: PRODUCT_STATUS.ACTIVE,
+        type: { $ne: PRODUCT_TYPE.PREPARED },
         recordStatus: RECORD_STATUS.ACTIVE,
       }),
       this.stockAlerts(userId),
@@ -173,6 +181,7 @@ class DashboardService {
           $match: {
             userId,
             recordStatus: RECORD_STATUS.ACTIVE,
+            type: { $ne: PRODUCT_TYPE.PREPARED },
           },
         },
         {

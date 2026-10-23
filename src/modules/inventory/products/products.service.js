@@ -207,6 +207,18 @@ class ProductsService extends BaseService {
       throw HttpError.conflict('Record an outbound movement before deleting a product with stock');
     }
 
+    // No permitir eliminar un insumo que esté en la receta de algún plato activo:
+    // dejaría la receta rota y bloquearía la venta de ese plato.
+    const usedInRecipe = await this.repository.model.findOne({
+      userId,
+      type: PRODUCT_TYPE.PREPARED,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      'recipe.ingredientId': productId,
+    }).select('_id name').lean();
+    if (usedInRecipe) {
+      throw HttpError.conflict(`This product is an ingredient of "${usedInRecipe.name}". Remove it from that recipe first.`);
+    }
+
     return this.softDelete(productId, userId);
   }
 

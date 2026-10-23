@@ -21,6 +21,7 @@ async function syncIndexes() {
     require('../modules/inventory/purchases/purchases.model'),
     require('../modules/inventory/sales/sales.model'),
     require('../modules/inventory/deliveries/deliveries.model'),
+    require('../modules/inventory/tables/tables.model'),
   ];
 
   for (const model of models) {

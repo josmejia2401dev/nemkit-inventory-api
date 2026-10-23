@@ -66,6 +66,11 @@ const PERMISSIONS = Object.freeze({
     read: ['COOK', 'WAITER', 'CASHIER', 'SELLER'],
     write: ['COOK', 'WAITER', 'CASHIER', 'SELLER'],
   },
+  // Mesas (restaurante): leen meseros/caja (elegir mesa, ver ocupación); gestiona admin.
+  tables: {
+    read: ['WAITER', 'CASHIER', 'SELLER', 'COOK'],
+    write: [], // crear/editar/borrar queda a ADMIN vía requireRole en las rutas
+  },
   reports: {
     read: [],
     write: [],
