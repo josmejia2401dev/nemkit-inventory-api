@@ -7,6 +7,7 @@ const { env } = require('./config/env');
 const logger = require('./config/logger');
 const { mongoClient } = require('./config/db');
 const { seedAdminUser } = require('./seeds/admin-seed');
+const { syncIndexes } = require('./config/sync-indexes');
 const app = require('./app');
 
 createServer({
@@ -16,6 +17,7 @@ createServer({
   port: env.PORT,
   host: env.HOST,
 }).then(async () => {
+  await syncIndexes();
   await seedAdminUser();
 }).catch((err) => {
   logger.error('Fatal error starting server', { error: err.message });

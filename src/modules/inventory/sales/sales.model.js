@@ -22,6 +22,8 @@ const SaleSchema = applyPlatformSchema({
     phone: { type: String, default: '' },
     email: { type: String, default: '' },
   },
+  employeeId: { type: Number, default: null, index: true },
+  employeeSnapshot: { name: { type: String, default: '' } },
   date: { type: Date, required: true, index: true },
   status: { type: String, enum: Object.values(DOCUMENT_STATUS), default: DOCUMENT_STATUS.COMPLETED },
   notes: { type: String, trim: true, default: '', maxlength: 1000 },
@@ -31,5 +33,6 @@ const SaleSchema = applyPlatformSchema({
 });
 SaleSchema.index({ userId: 1, date: -1 });
 SaleSchema.index({ userId: 1, customerId: 1, date: -1 });
+SaleSchema.index({ userId: 1, employeeId: 1, date: -1 });
 
 module.exports = mongoose.model('inventory_sales', SaleSchema);

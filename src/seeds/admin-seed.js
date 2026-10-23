@@ -28,8 +28,10 @@ async function seedAdminUser() {
 
   const passwordHash = await hashPassword(password);
 
+  const adminId = UniqueNumberUtil.generateRaw();
   await User.create({
-    _id: UniqueNumberUtil.generateRaw(),
+    _id: adminId,
+    tenantId: adminId,
     fullName,
     email,
     passwordHash,

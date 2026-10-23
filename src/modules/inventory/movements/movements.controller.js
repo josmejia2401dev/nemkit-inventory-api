@@ -11,6 +11,7 @@ const CREATABLE_MOVEMENT_TYPES = MOVEMENT_TYPES.filter((type) => ![
 
 const schema = createValidator({
   type: { type: 'string', required: true, enum: CREATABLE_MOVEMENT_TYPES },
+  employeeId: { type: 'number', min: 1 },
   date: { type: 'date' },
   notes: { type: 'string', trim: true, maxLength: 1000 },
   items: { type: 'array', required: true, minLength: 1 },
@@ -39,6 +40,9 @@ class MovementsController {
     try {
       const { errorResponse, sanitized } = schema.check(req.body, req);
       if (errorResponse) return res.status(400).json(errorResponse);
+      if (sanitized.employeeId == null && req.user.employeeId != null) {
+        sanitized.employeeId = req.user.employeeId;
+      }
 
       const movement = await service.create(sanitized, req.user.id);
       return created(res, movement);

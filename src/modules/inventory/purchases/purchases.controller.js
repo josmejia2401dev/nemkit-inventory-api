@@ -6,6 +6,7 @@ const { purchasesService } = require('./purchases.service');
 
 const schema = createValidator({
   supplierId: { type: 'number', required: true, min: 1 },
+  employeeId: { type: 'number', min: 1 },
   date: { type: 'date' },
   notes: { type: 'string', trim: true, maxLength: 1000 },
   items: { type: 'array', required: true, minLength: 1 },
@@ -16,6 +17,9 @@ class PurchasesController extends InventoryDocumentController {
     try {
       const { errorResponse, sanitized } = schema.check(req.body, req);
       if (errorResponse) return res.status(400).json(errorResponse);
+      if (sanitized.employeeId == null && req.user.employeeId != null) {
+        sanitized.employeeId = req.user.employeeId;
+      }
       return created(res, await this.service.create(sanitized, req.user.id));
     } catch (error) {
       next(error);

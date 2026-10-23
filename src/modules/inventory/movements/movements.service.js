@@ -3,6 +3,8 @@
 const { BaseService, HttpError, UniqueNumberUtil, RECORD_STATUS } = require('nemkit');
 const { MovementsRepository } = require('./movements.repository');
 const { ProductsRepository } = require('../products/products.repository');
+const Employee = require('../employees/employees.model');
+const { resolveEmployee } = require('../employees/employee-responsible');
 const { pagination, positiveInteger, parseDate } = require('../validation');
 const {
   PRODUCT_STATUS,
@@ -97,6 +99,13 @@ class MovementsService extends BaseService {
     }
 
     return this.repository.withTransaction(async (session) => {
+      const { employeeId, employeeSnapshot } = await resolveEmployee({
+        Employee,
+        userId,
+        employeeId: data.employeeId,
+        session,
+      });
+
       const productIds = [...totals.keys()];
       const products = await this.products.model.find({
         userId,
@@ -138,9 +147,12 @@ class MovementsService extends BaseService {
       }
 
       const movementDocuments = [{
-        ...data,
         _id: UniqueNumberUtil.generateRaw(),
+        type: data.type,
+        notes: data.notes ?? '',
         date,
+        employeeId,
+        employeeSnapshot,
         items,
         userId,
         createdBy: userId,

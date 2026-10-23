@@ -3,12 +3,15 @@
 const { BaseService, MongoRepository, HttpError, RECORD_STATUS, UniqueNumberUtil } = require('nemkit');
 const Product = require('../products/products.model');
 const Movement = require('../movements/movements.model');
+const Employee = require('../employees/employees.model');
+const { resolveEmployee } = require('../employees/employee-responsible');
 const { pagination, positiveInteger, parseDate } = require('../validation');
 const {
   PRODUCT_STATUS,
   MOVEMENT_TYPE,
   MOVEMENT_DIRECTION,
   MOVEMENT_SOURCE_TYPE,
+  resolveLoyaltyTier,
 } = require('../inventory.constants');
 
 class InventoryDocumentService extends BaseService {
@@ -23,6 +26,8 @@ class InventoryDocumentService extends BaseService {
     this.amountField = amountField;
     this.label = label;
     this.requiredContact = requiredContact;
+    // Solo las ventas (contacto = cliente) actualizan métricas de fidelización.
+    this.updatesCustomerStats = contactField === 'customerId';
   }
 
   async list(userId, query = {}) {
@@ -84,6 +89,13 @@ class InventoryDocumentService extends BaseService {
         if (!contact) throw HttpError.badRequest(`Invalid or inactive ${this.contactField}`);
       }
 
+      const { employeeId, employeeSnapshot } = await resolveEmployee({
+        Employee,
+        userId,
+        employeeId: data.employeeId,
+        session,
+      });
+
       const productIds = [...new Set(items.map((item) => item.productId))];
       const products = await Product.find({
         userId,
@@ -141,6 +153,8 @@ class InventoryDocumentService extends BaseService {
         userId,
         date,
         notes,
+        employeeId,
+        employeeSnapshot,
         items: documentItems,
         total,
         movementId,
@@ -170,6 +184,8 @@ class InventoryDocumentService extends BaseService {
         date,
         type: this.movementType,
         notes,
+        employeeId,
+        employeeSnapshot,
         sourceType: this.movementType === MOVEMENT_TYPE.PURCHASE
           ? MOVEMENT_SOURCE_TYPE.PURCHASE
           : MOVEMENT_SOURCE_TYPE.SALE,
@@ -178,9 +194,24 @@ class InventoryDocumentService extends BaseService {
         createdBy: userId,
         updatedBy: userId,
       }], { session });
+
+      if (this.updatesCustomerStats && contactId !== null && contact) {
+        await this.#updateCustomerStats(contact, total, date, userId, session);
+      }
+
+      // Hook de extensión dentro de la misma transacción (lo usa Ventas para
+      // crear el domicilio asociado cuando la venta es a domicilio).
+      await this.afterCreate({ document, data, contact, items: documentItems, userId, session });
+
       return this.repository.normalizeOutput(document);
     });
   }
+
+  /**
+   * Gancho de extensión ejecutado dentro de la transacción de creación del
+   * documento. Por defecto no hace nada; las subclases lo sobrescriben.
+   */
+  async afterCreate() {}
 
   #validateItems(items) {
     if (!Array.isArray(items) || items.length === 0 || items.length > 500) {
@@ -204,6 +235,35 @@ class InventoryDocumentService extends BaseService {
         [this.amountField]: amount,
       };
     });
+  }
+
+  /**
+   * Actualiza, dentro de la misma transacción de la venta, las métricas de
+   * fidelización del cliente: total gastado, nº de compras, primera/última
+   * compra y nivel. Desnormalizado para que la búsqueda por celular sea inmediata.
+   */
+  async #updateCustomerStats(contact, total, date, userId, session) {
+    const previousSpent = contact.stats?.totalSpent ?? 0;
+    const previousCount = contact.stats?.purchaseCount ?? 0;
+    const newSpent = this.#roundMoney(previousSpent + total);
+    const newCount = previousCount + 1;
+    const firstPurchaseAt = contact.stats?.firstPurchaseAt ?? date;
+    const loyaltyTier = resolveLoyaltyTier(newSpent, newCount);
+
+    await this.contactModel.updateOne(
+      { _id: contact._id, userId },
+      {
+        $set: {
+          'stats.totalSpent': newSpent,
+          'stats.purchaseCount': newCount,
+          'stats.firstPurchaseAt': firstPurchaseAt,
+          'stats.lastPurchaseAt': date,
+          loyaltyTier,
+          updatedBy: userId,
+        },
+      },
+      { session },
+    );
   }
 
   #contactSnapshot(contact) {

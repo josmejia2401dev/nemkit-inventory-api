@@ -1,9 +1,23 @@
 'use strict';
 
+const { HttpError, RECORD_STATUS, UniqueNumberUtil } = require('nemkit');
 const Sale = require('./sales.model');
 const Customer = require('../customers/customers.model');
+const Product = require('../products/products.model');
+const Movement = require('../movements/movements.model');
+const Delivery = require('../deliveries/deliveries.model');
+const Employee = require('../employees/employees.model');
 const { InventoryDocumentService } = require('../documents/document.service');
-const { MOVEMENT_TYPE, MOVEMENT_DIRECTION } = require('../inventory.constants');
+const { positiveInteger } = require('../validation');
+const {
+  MOVEMENT_TYPE,
+  MOVEMENT_DIRECTION,
+  DOCUMENT_STATUS,
+  DELIVERY_STATUS,
+  EMPLOYEE_ROLE,
+  EMPLOYEE_STATUS,
+  resolveLoyaltyTier,
+} = require('../inventory.constants');
 
 class SalesService extends InventoryDocumentService {
   constructor() {
@@ -18,6 +32,180 @@ class SalesService extends InventoryDocumentService {
       requiredContact: true,
     });
   }
+
+  /**
+   * Si la venta es a domicilio (data.delivery presente), crea el pedido de
+   * entrega vinculado a la venta dentro de la misma transacción. La venta ya
+   * descontó el stock; el domicilio es logística de entrega (no vuelve a tocar
+   * existencias ni genera otra venta).
+   */
+  async afterCreate({ document, data, contact, items, userId, session }) {
+    const delivery = data.delivery;
+    if (!delivery) return;
+
+    const address = typeof delivery.address === 'string' ? delivery.address.trim() : '';
+    if (!address || address.length > 300) {
+      throw HttpError.badRequest('delivery.address is required and must be at most 300 characters');
+    }
+
+    const location = this.#validateDeliveryLocation(delivery.location);
+    const courier = await this.#resolveCourier(userId, delivery.courierId, session);
+
+    await Delivery.create([{
+      _id: UniqueNumberUtil.generateRaw(),
+      userId,
+      saleId: document._id,
+      customerId: document.customerId,
+      customerSnapshot: {
+        name: contact.name,
+        phone: contact.phone || '',
+      },
+      address,
+      location,
+      items: items.map((item) => ({
+        productId: item.productId,
+        sku: item.sku,
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        lineTotal: item.lineTotal,
+      })),
+      total: document.total,
+      notes: typeof delivery.notes === 'string' ? delivery.notes.slice(0, 1000) : '',
+      status: DELIVERY_STATUS.PENDING,
+      courierId: courier.courierId,
+      courierSnapshot: courier.courierSnapshot,
+      createdBy: userId,
+      updatedBy: userId,
+    }], { session });
+  }
+
+  #validateDeliveryLocation(location) {
+    if (location == null) return { lat: null, lng: null };
+    if (typeof location !== 'object' || Array.isArray(location)) {
+      throw HttpError.badRequest('delivery.location must be an object');
+    }
+    const coord = (value, field, bound) => {
+      if (value === undefined || value === null || value === '') return null;
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < -bound || value > bound) {
+        throw HttpError.badRequest(`delivery.location.${field} must be a number between ${-bound} and ${bound}`);
+      }
+      return value;
+    };
+    return { lat: coord(location.lat, 'lat', 90), lng: coord(location.lng, 'lng', 180) };
+  }
+
+  async #resolveCourier(userId, courierId, session) {
+    if (courierId == null || courierId === '') return { courierId: null, courierSnapshot: { name: '' } };
+    const id = positiveInteger(courierId, 'delivery.courierId');
+    const employee = await Employee.findOne({
+      _id: id,
+      userId,
+      role: EMPLOYEE_ROLE.COURIER,
+      status: EMPLOYEE_STATUS.ACTIVE,
+      recordStatus: RECORD_STATUS.ACTIVE,
+    }).select('_id name').session(session).lean();
+    if (!employee) throw HttpError.badRequest('Invalid or inactive courier');
+    return { courierId: employee._id, courierSnapshot: { name: employee.name } };
+  }
+
+  /**
+   * Anula una venta: repone el stock, registra un movimiento de reversa,
+   * marca la venta como anulada y revierte las métricas del cliente. Todo en
+   * una transacción. Idempotente frente a ventas ya anuladas.
+   *
+   * @param {number} saleId
+   * @param {number} userId - tenant
+   * @param {Object} [options]
+   * @param {string} [options.reason]
+   */
+  async voidSale(saleId, userId, { reason = '' } = {}) {
+    const id = positiveInteger(saleId, 'saleId');
+
+    return this.repository.withTransaction(async (session) => {
+      const sale = await Sale.findOne({
+        _id: id,
+        userId,
+        recordStatus: RECORD_STATUS.ACTIVE,
+      }).session(session).lean();
+      if (!sale) throw HttpError.notFound('Sale not found');
+      if (sale.status === DOCUMENT_STATUS.VOID) {
+        throw HttpError.conflict('Sale is already void');
+      }
+
+      // Reponer stock de cada producto vendido.
+      for (const item of sale.items) {
+        await Product.updateOne(
+          { _id: item.productId, userId },
+          { $inc: { stock: item.quantity } },
+          { session },
+        );
+      }
+
+      // Movimiento de reversa (entrada) que explica la devolución de existencias.
+      const voidMovementId = UniqueNumberUtil.generateRaw();
+      await Movement.create([{
+        _id: voidMovementId,
+        userId,
+        date: new Date(),
+        type: MOVEMENT_TYPE.SALE_VOID,
+        notes: reason ? `Anulación venta #${id}: ${reason}` : `Anulación venta #${id}`,
+        employeeId: sale.employeeId ?? null,
+        employeeSnapshot: sale.employeeSnapshot ?? { name: '' },
+        sourceType: null,
+        sourceId: id,
+        items: sale.items.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          direction: MOVEMENT_DIRECTION.IN,
+          unitCost: item.unitCost,
+          unitPrice: item.unitPrice,
+        })),
+        createdBy: userId,
+        updatedBy: userId,
+      }], { session });
+
+      // Marcar la venta como anulada.
+      await Sale.updateOne(
+        { _id: id, userId },
+        { status: DOCUMENT_STATUS.VOID, updatedBy: userId },
+        { session },
+      );
+
+      // Revertir métricas de fidelización del cliente.
+      const customer = await Customer.findOne({
+        _id: sale.customerId,
+        userId,
+        recordStatus: RECORD_STATUS.ACTIVE,
+      }).session(session).lean();
+      if (customer) {
+        const newSpent = Math.max(0, this.#round(previousSpentOf(customer) - sale.total));
+        const newCount = Math.max(0, (customer.stats?.purchaseCount ?? 0) - 1);
+        await Customer.updateOne(
+          { _id: customer._id, userId },
+          {
+            $set: {
+              'stats.totalSpent': newSpent,
+              'stats.purchaseCount': newCount,
+              loyaltyTier: resolveLoyaltyTier(newSpent, newCount),
+              updatedBy: userId,
+            },
+          },
+          { session },
+        );
+      }
+
+      return { id, status: DOCUMENT_STATUS.VOID, voidMovementId };
+    });
+  }
+
+  #round(value) {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+}
+
+function previousSpentOf(customer) {
+  return customer.stats?.totalSpent ?? 0;
 }
 
 module.exports = { salesService: new SalesService() };

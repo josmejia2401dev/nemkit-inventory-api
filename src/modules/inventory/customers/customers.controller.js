@@ -8,6 +8,8 @@ const fields = {
   document: { type: 'string', trim: true, maxLength: 40 },
   phone: { type: 'string', trim: true, maxLength: 40 },
   email: { type: 'string', trim: true, maxLength: 254 },
+  address: { type: 'string', trim: true, maxLength: 300 },
+  birthDate: { type: 'date' },
 };
 const createSchema = createValidator({
   ...fields,
@@ -36,6 +38,21 @@ class CustomersController {
   async get(req, res, next) {
     try {
       return success(res, await service.getOwned(req.params.id, req.user.id));
+    } catch (error) {
+      next(error);
+    }
+  }
+  async lookup(req, res, next) {
+    try {
+      const customer = await service.lookup(req.user.id, req.query.term);
+      return success(res, customer);
+    } catch (error) {
+      next(error);
+    }
+  }
+  async profile(req, res, next) {
+    try {
+      return success(res, await service.profile(req.params.id, req.user.id, req.query));
     } catch (error) {
       next(error);
     }

@@ -1,6 +1,6 @@
 'use strict';
 
-const { BaseService, HttpError, hashPassword } = require('nemkit');
+const { BaseService, HttpError, hashPassword, UniqueNumberUtil } = require('nemkit');
 const { UsersRepository } = require('./users.repository');
 
 class UsersService extends BaseService {
@@ -15,14 +15,35 @@ class UsersService extends BaseService {
     return user;
   }
 
+  /**
+   * Registro público: crea el dueño de una cuenta. Su tenant es él mismo,
+   * de modo que se convierte en el silo de datos de su propia empresa.
+   */
   async create(payload, userId = null) {
-    const existing = await this.repository.findByEmail(payload.email);
+    const email = String(payload.email ?? '').trim().toLowerCase();
+    if (!email) throw HttpError.badRequest('email is required');
+    const existing = await this.repository.findByEmail(email);
     if (existing) throw HttpError.conflict('Email already registered');
     const passwordHash = await hashPassword(payload.password);
-    return this.repository.create(
-      { fullName: payload.fullName, email: payload.email, passwordHash, security: { mustChangePassword: false } },
-      userId,
-    );
+    const ownerId = UniqueNumberUtil.generateRaw();
+    try {
+      return await this.repository.create(
+        {
+          _id: ownerId,
+          tenantId: ownerId,
+          fullName: payload.fullName,
+          email,
+          companyName: payload.companyName ?? '',
+          passwordHash,
+          roles: ['ADMIN'],
+          security: { mustChangePassword: false },
+        },
+        userId,
+      );
+    } catch (error) {
+      if (error?.code === 11000) throw HttpError.conflict('Email already registered');
+      throw error;
+    }
   }
 
   findByEmail(email) { return this.repository.findByEmail(email); }

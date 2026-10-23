@@ -30,6 +30,15 @@ class ReportsController {
       next(error);
     }
   }
+
+  async salesByEmployee(req, res, next) {
+    try {
+      const report = await reportsService.salesByEmployee(req.user.id, req.query);
+      return success(res, report);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = { reportsController: new ReportsController() };

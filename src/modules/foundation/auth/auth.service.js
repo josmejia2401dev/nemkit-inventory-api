@@ -23,7 +23,7 @@ class AuthService {
   async register(payload, deviceInfo = {}) {
     const user = await usersService.create(payload);
     const { accessToken, refreshToken } = await this.#createTokens(user, deviceInfo);
-    return { user: this.#publicUser(user), accessToken, refreshToken };
+    return { user: this.#publicUser(user), company: await this.#company(user), accessToken, refreshToken };
   }
 
   async login(email, password, deviceInfo = {}) {
@@ -54,7 +54,13 @@ class AuthService {
 
     await usersService.updateLoginSecurity(user.id, { 'security.loginAttempts': 0, 'security.lockedUntil': null, 'security.lastLoginAt': new Date() });
     const { accessToken, refreshToken } = await this.#createTokens(user, deviceInfo);
-    return { user: this.#publicUser(user), accessToken, refreshToken, mustChangePassword: user.security?.mustChangePassword ?? false };
+    return {
+      user: this.#publicUser(user),
+      company: await this.#company(user),
+      accessToken,
+      refreshToken,
+      mustChangePassword: user.security?.mustChangePassword ?? false,
+    };
   }
 
   async refresh(refreshTokenStr, deviceInfo = {}) {
@@ -72,7 +78,8 @@ class AuthService {
 
     const newJti = String(result.newSession.id);
     const user = await usersService.getById(payload.id);
-    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles }, newJti);
+    const tenantId = user.tenantId ?? user.id;
+    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, tenantId, employeeId: user.employeeId ?? null }, newJti);
     const newRefreshToken = jwtManager.signRefreshToken({ id: user.id }, newJti);
 
     return { accessToken, refreshToken: newRefreshToken };
@@ -140,13 +147,33 @@ class AuthService {
     const audience = deviceInfo.audience ?? 'web';
     const session = await tokensService.createSession(user.id, audience, deviceInfo);
     const jti = String(session.id);
-    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles }, jti);
+    const tenantId = user.tenantId ?? user.id;
+    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, tenantId, employeeId: user.employeeId ?? null }, jti);
     const refreshToken = jwtManager.signRefreshToken({ id: user.id }, jti);
     return { accessToken, refreshToken };
   }
 
   #publicUser(user) {
-    return { id: user.id, fullName: user.fullName, email: user.email, roles: user.roles };
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      roles: user.roles,
+      tenantId: user.tenantId ?? user.id,
+    };
+  }
+
+  /**
+   * Resuelve la empresa (tenant) a la que pertenece el usuario para mostrarla
+   * tras el login. Para el dueño es su propia cuenta; para un empleado, la del admin.
+   */
+  async #company(user) {
+    const tenantId = user.tenantId ?? user.id;
+    const owner = await usersService.findById(tenantId);
+    return {
+      id: tenantId,
+      name: owner?.companyName || owner?.fullName || '',
+    };
   }
 }
 

@@ -137,14 +137,17 @@ class ReportsService {
       throw HttpError.badRequest('groupBy must be day, week or month');
     }
 
+    const match = {
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      date: { $gte: range.from, $lt: range.toExclusive },
+    };
+    if (query.employeeId !== undefined) {
+      match.employeeId = positiveInteger(query.employeeId, 'employeeId');
+    }
+
     const result = await Sale.aggregate([
-      {
-        $match: {
-          userId,
-          recordStatus: RECORD_STATUS.ACTIVE,
-          date: { $gte: range.from, $lt: range.toExclusive },
-        },
-      },
+      { $match: match },
       {
         $addFields: {
           unitsSold: { $sum: '$items.quantity' },
@@ -212,8 +215,87 @@ class ReportsService {
 
     return {
       groupBy,
+      employeeId: match.employeeId ?? null,
       totals: result[0]?.totals[0] || { salesCount: 0, unitsSold: 0, revenue: 0, grossProfit: 0 },
       periods: result[0]?.periods || [],
+    };
+  }
+
+  /**
+   * Ventas agregadas por empleado vendedor en un rango de fechas.
+   * Conserva el nombre vía snapshot aunque el empleado se haya editado o eliminado.
+   */
+  async salesByEmployee(userId, query = {}) {
+    const range = dateRange(query);
+
+    const result = await Sale.aggregate([
+      {
+        $match: {
+          userId,
+          recordStatus: RECORD_STATUS.ACTIVE,
+          date: { $gte: range.from, $lt: range.toExclusive },
+        },
+      },
+      {
+        $addFields: {
+          unitsSold: { $sum: '$items.quantity' },
+          grossProfit: {
+            $reduce: {
+              input: '$items',
+              initialValue: 0,
+              in: {
+                $add: [
+                  '$$value',
+                  { $multiply: [{ $subtract: ['$$this.unitPrice', '$$this.unitCost'] }, '$$this.quantity'] },
+                ],
+              },
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: '$employeeId',
+          employeeName: { $last: '$employeeSnapshot.name' },
+          salesCount: { $sum: 1 },
+          unitsSold: { $sum: '$unitsSold' },
+          revenue: { $sum: '$total' },
+          grossProfit: { $sum: '$grossProfit' },
+        },
+      },
+      { $sort: { revenue: -1 } },
+      {
+        $project: {
+          _id: 0,
+          employeeId: '$_id',
+          employeeName: 1,
+          salesCount: 1,
+          unitsSold: 1,
+          revenue: 1,
+          grossProfit: 1,
+        },
+      },
+    ]);
+
+    const employees = result.map((row) => ({
+      employeeId: row.employeeId ?? null,
+      employeeName: row.employeeName || (row.employeeId ? `Empleado #${row.employeeId}` : 'Sin asignar'),
+      salesCount: row.salesCount,
+      unitsSold: row.unitsSold,
+      revenue: this.#roundMoney(row.revenue),
+      grossProfit: this.#roundMoney(row.grossProfit),
+    }));
+
+    return {
+      generatedAt: new Date(),
+      totals: {
+        employeeCount: employees.filter((employee) => employee.employeeId != null).length,
+        salesCount: employees.reduce((sum, employee) => sum + employee.salesCount, 0),
+        unitsSold: employees.reduce((sum, employee) => sum + employee.unitsSold, 0),
+        revenue: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.revenue, 0)),
+        grossProfit: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.grossProfit, 0)),
+      },
+      employees,
     };
   }
 

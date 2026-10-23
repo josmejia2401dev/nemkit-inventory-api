@@ -15,12 +15,15 @@ const MovementSchema = applyPlatformSchema({
   date: { type: Date, default: Date.now, index: true },
   type: { type: String, enum: MOVEMENT_TYPES, required: true },
   notes: { type: String, trim: true, default: '', maxlength: 1000 },
+  employeeId: { type: Number, default: null, index: true },
+  employeeSnapshot: { name: { type: String, default: '' } },
   sourceType: { type: String, enum: Object.values(MOVEMENT_SOURCE_TYPE), default: null },
   sourceId: { type: Number, min: 1, default: null },
   items: { type: [MovementItemSchema], required: true, validate: { validator: (v) => v.length > 0, message: 'At least one item is required' } },
 });
 MovementSchema.index({ userId: 1, date: -1 });
 MovementSchema.index({ userId: 1, type: 1, date: -1 });
+MovementSchema.index({ userId: 1, employeeId: 1, date: -1 });
 MovementSchema.index({ userId: 1, 'items.productId': 1, date: -1 });
 MovementSchema.index({ userId: 1, sourceType: 1, sourceId: 1 }, {
   unique: true,

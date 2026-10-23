@@ -10,6 +10,7 @@ const {
   createValidator,
 } = require('nemkit');
 const { authenticate } = require('../middlewares/auth.middleware');
+const { scopeToTenant } = require('../middlewares/tenant.middleware');
 const authRoutes = require('../modules/foundation/auth/auth.routes');
 const { usersService } = require('../modules/foundation/users/users.service');
 const productsRoutes = require('../modules/inventory/products/products.routes');
@@ -21,6 +22,8 @@ const customersRoutes = require('../modules/inventory/customers/customers.routes
 const purchasesRoutes = require('../modules/inventory/purchases/purchases.routes');
 const salesRoutes = require('../modules/inventory/sales/sales.routes');
 const reportsRoutes = require('../modules/inventory/reports/reports.routes');
+const employeesRoutes = require('../modules/inventory/employees/employees.routes');
+const deliveriesRoutes = require('../modules/inventory/deliveries/deliveries.routes');
 
 const router = express.Router();
 
@@ -103,6 +106,9 @@ router.put('/profile/password', async (req, res, next) => {
   }
 });
 
+// A partir de aquí, el dominio de inventario opera sobre la empresa (tenant).
+router.use(scopeToTenant);
+
 router.use('/products', productsRoutes);
 router.use('/categories', categoriesRoutes);
 router.use('/movements', movementsRoutes);
@@ -112,5 +118,7 @@ router.use('/customers', customersRoutes);
 router.use('/purchases', purchasesRoutes);
 router.use('/sales', salesRoutes);
 router.use('/reports', reportsRoutes);
+router.use('/employees', employeesRoutes);
+router.use('/deliveries', deliveriesRoutes);
 
 module.exports = router;

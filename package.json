@@ -14,6 +14,6 @@
     "nodemon": "^3.1.14"
   },
   "dependencies": {
-    "nemkit": "github:josmejia2401dev/nemkit#a512b7bde61c686a6de73b9d7c99db404be59877"
+    "nemkit": "github:josmejia2401dev/nemkit#1dda81323fa5796fa4f4a4b0deafcd168bf69721"
   }
 }

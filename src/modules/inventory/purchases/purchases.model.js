@@ -22,6 +22,8 @@ const PurchaseSchema = applyPlatformSchema({
     email: { type: String, default: '' },
     address: { type: String, default: '' },
   },
+  employeeId: { type: Number, default: null, index: true },
+  employeeSnapshot: { name: { type: String, default: '' } },
   date: { type: Date, required: true, index: true },
   status: { type: String, enum: Object.values(DOCUMENT_STATUS), default: DOCUMENT_STATUS.COMPLETED },
   notes: { type: String, trim: true, default: '', maxlength: 1000 },
@@ -31,5 +33,6 @@ const PurchaseSchema = applyPlatformSchema({
 });
 PurchaseSchema.index({ userId: 1, date: -1 });
 PurchaseSchema.index({ userId: 1, supplierId: 1, date: -1 });
+PurchaseSchema.index({ userId: 1, employeeId: 1, date: -1 });
 
 module.exports = mongoose.model('inventory_purchases', PurchaseSchema);
