@@ -14,6 +14,9 @@ const EmployeeSchema = applyPlatformSchema({
   userId: { type: Number, required: true, index: true },
   // Cuenta de login vinculada (null = empleado sin acceso al sistema).
   linkedUserId: { type: Number, default: null, index: true },
+  formerUserId: { type: Number, default: null, index: true },
+  disassociatedAt: { type: Date, default: null },
+  disassociatedBy: { type: Number, default: null },
   name: { type: String, required: true, trim: true, maxlength: 160 },
   documentType: { type: String, enum: DOCUMENT_TYPES, default: DOCUMENT_TYPE.CC },
   documentNumber: { type: String, trim: true, default: '', maxlength: 40 },

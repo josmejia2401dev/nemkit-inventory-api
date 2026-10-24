@@ -2,7 +2,6 @@
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
 const { ProductsRepository } = require('./products.repository');
-const { CategoriesRepository } = require('../categories/categories.repository');
 const {
   pagination,
   positiveInteger,
@@ -23,7 +22,91 @@ const {
 class ProductsService extends BaseService {
   constructor() {
     super(new ProductsRepository());
-    this.categories = new CategoriesRepository();
+  }
+
+  getCategoryService() {
+    return require('../categories/categories.service').categoriesService;
+  }
+
+  findSummariesByIds(userId, productIds) {
+    return this.repository.findSummariesByIds(userId, productIds);
+  }
+
+  findActiveForStockChange(userId, productIds, session = null) {
+    return this.repository.findActiveForStockChange(userId, productIds, session);
+  }
+
+  findSaleReversalDetails(userId, productIds, session = null) {
+    return this.repository.findSaleReversalDetails(userId, productIds, session);
+  }
+
+  changeStock(userId, productId, quantity, direction, session = null) {
+    return this.repository.changeStock(userId, productId, quantity, direction, session);
+  }
+
+  restoreStock(userId, productId, quantity, session = null) {
+    return this.repository.restoreStock(userId, productId, quantity, session);
+  }
+
+  hasCategoryReferences(userId, categoryId) {
+    return this.repository.hasCategoryReferences(userId, categoryId);
+  }
+
+  dashboardSummary(userId) {
+    return this.repository.dashboardSummary(userId);
+  }
+
+  async stockAlertDetails(userId) {
+    const products = await this.repository.findStockAlertDetails(userId);
+    const categoryIds = [...new Set(products.map((product) => product.categoryId))];
+    const categories = await this.getCategoryService().findNamesByIds(userId, categoryIds);
+    const categoryNames = new Map(categories.map((category) => [category._id, category.name]));
+    const items = products.map((product) => ({
+      id: product._id,
+      name: product.name,
+      sku: product.sku,
+      stock: product.stock,
+      minimumStock: product.minimumStock,
+      categoryName: categoryNames.get(product.categoryId) || '',
+      state: product.stock === 0 ? 'out_of_stock' : 'low_stock',
+    }));
+
+    return {
+      outOfStock: items.filter((product) => product.state === 'out_of_stock').length,
+      lowStock: items.filter((product) => product.state === 'low_stock').length,
+      products: items,
+    };
+  }
+
+  async inventoryReport(userId) {
+    const products = await this.repository.listInventoryReport(userId);
+    const categoryIds = [...new Set(products.map((product) => product.categoryId))];
+    const categories = await this.getCategoryService().findNamesByIds(userId, categoryIds);
+    const categoryNames = new Map(categories.map((category) => [category._id, category.name]));
+    const items = products.map((product) => ({
+      id: product._id,
+      sku: product.sku,
+      name: product.name,
+      categoryName: categoryNames.get(product.categoryId) || 'Sin categoría',
+      status: product.status,
+      stock: product.stock,
+      minimumStock: product.minimumStock,
+      purchasePrice: product.purchasePrice,
+      salePrice: product.salePrice,
+      inventoryCost: this.#roundMoney(product.stock * product.purchasePrice),
+      potentialSales: this.#roundMoney(product.stock * product.salePrice),
+    }));
+
+    return {
+      generatedAt: new Date(),
+      totals: {
+        productCount: items.length,
+        units: items.reduce((sum, item) => sum + item.stock, 0),
+        inventoryCost: this.#roundMoney(items.reduce((sum, item) => sum + item.inventoryCost, 0)),
+        potentialSales: this.#roundMoney(items.reduce((sum, item) => sum + item.potentialSales, 0)),
+      },
+      items,
+    };
   }
 
   async list(userId, query = {}) {
@@ -118,13 +201,10 @@ class ProductsService extends BaseService {
     validateProductFields(data);
     const type = this.#validateType(data.type);
     const categoryId = positiveInteger(data.categoryId, 'categoryId');
-    const category = await this.categories.findOne({
-      _id: categoryId,
-      userId,
-      recordStatus: RECORD_STATUS.ACTIVE,
-    });
-
-    if (!category) throw HttpError.badRequest('Invalid or inactive category');
+    const categories = await this.getCategoryService();
+    if (!await categories.existsActive(categoryId, userId)) {
+      throw HttpError.badRequest('Invalid or inactive category');
+    }
 
     // La receta es OPCIONAL para los platos: un restaurante pequeño puede no
     // tener medidas exactas. Si se envían insumos se validan; si no, queda vacía
@@ -171,11 +251,8 @@ class ProductsService extends BaseService {
 
     if (data.categoryId !== undefined) {
       data.categoryId = positiveInteger(data.categoryId, 'categoryId');
-      const categoryExists = await this.categories.exists({
-        _id: data.categoryId,
-        userId,
-        recordStatus: RECORD_STATUS.ACTIVE,
-      });
+      const categories = await this.getCategoryService();
+      const categoryExists = await categories.existsActive(data.categoryId, userId);
 
       if (!categoryExists) throw HttpError.badRequest('Invalid or inactive category');
     }
@@ -214,12 +291,7 @@ class ProductsService extends BaseService {
 
     // No permitir eliminar un insumo que esté en la receta de algún plato activo:
     // dejaría la receta rota y bloquearía la venta de ese plato.
-    const usedInRecipe = await this.repository.model.findOne({
-      userId,
-      type: PRODUCT_TYPE.PREPARED,
-      recordStatus: RECORD_STATUS.ACTIVE,
-      'recipe.ingredientId': productId,
-    }).select('_id name').lean();
+    const usedInRecipe = await this.repository.findActiveRecipeReference(userId, productId);
     if (usedInRecipe) {
       throw HttpError.conflict(`This product is an ingredient of "${usedInRecipe.name}". Remove it from that recipe first.`);
     }
@@ -271,19 +343,17 @@ class ProductsService extends BaseService {
     });
 
     const ids = [...new Set(normalized.map((item) => item.ingredientId))];
-    const ingredients = await this.repository.model.find({
-      userId,
-      _id: { $in: ids },
-      type: { $in: [PRODUCT_TYPE.INGREDIENT, PRODUCT_TYPE.SIMPLE] },
-      status: PRODUCT_STATUS.ACTIVE,
-      recordStatus: RECORD_STATUS.ACTIVE,
-    }).select('_id').lean();
+    const ingredients = await this.repository.findActiveIngredients(userId, ids);
 
     if (ingredients.length !== ids.length) {
       throw HttpError.badRequest('One or more recipe ingredients are invalid, inactive or not purchasable');
     }
 
     return normalized;
+  }
+
+  #roundMoney(value) {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
   }
 }
 

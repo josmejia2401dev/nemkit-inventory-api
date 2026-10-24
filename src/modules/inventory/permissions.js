@@ -8,7 +8,8 @@
  * en el JWT) pueden acceder a un grupo de rutas y, cuando aplica, se separa
  * lectura (GET) de escritura (POST/PUT/DELETE).
  *
- * ADMIN y SUPERADMIN tienen acceso total y no necesitan listarse por recurso.
+ * ADMIN tiene acceso total a los datos operativos de su tenant. SUPERADMIN
+ * administra la plataforma mediante /platform, con un alcance global distinto.
  */
 
 const ALL = 'ALL'; // marcador: todos los roles autenticados del tenant
@@ -82,11 +83,11 @@ const PERMISSIONS = Object.freeze({
 });
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const PRIVILEGED_ROLES = ['ADMIN', 'SUPERADMIN'];
+const PRIVILEGED_ROLES = ['ADMIN'];
 
 /**
  * Crea un middleware de autorización para un recurso, respetando lectura vs escritura.
- * ADMIN/SUPERADMIN siempre pasan. Si no hay permiso, responde 403.
+ * ADMIN siempre pasa. SUPERADMIN solo entra a endpoints de plataforma explícitos.
  *
  * @param {string} resource - clave en PERMISSIONS
  */

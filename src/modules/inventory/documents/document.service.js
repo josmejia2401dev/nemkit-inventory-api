@@ -1,36 +1,31 @@
 'use strict';
 
-const { BaseService, MongoRepository, HttpError, RECORD_STATUS, UniqueNumberUtil } = require('nemkit');
-const Product = require('../products/products.model');
-const Movement = require('../movements/movements.model');
-const Employee = require('../employees/employees.model');
-const { resolveEmployee } = require('../employees/employee-responsible');
+const { BaseService, HttpError, RECORD_STATUS, UniqueNumberUtil } = require('nemkit');
+const { employeesService } = require('../employees/employees.service');
+const { productsService } = require('../products/products.service');
+const { movementsService } = require('../movements/movements.service');
 const { pagination, positiveInteger, parseDate } = require('../validation');
 const {
-  PRODUCT_STATUS,
   PRODUCT_TYPE,
   PURCHASABLE_TYPES,
   SELLABLE_TYPES,
   MOVEMENT_TYPE,
   MOVEMENT_DIRECTION,
   MOVEMENT_SOURCE_TYPE,
-  resolveLoyaltyTier,
+  KITCHEN_STATUS,
+  ORDER_STATUS,
 } = require('../inventory.constants');
 
 class InventoryDocumentService extends BaseService {
-  constructor({ model, contactModel, contactField, movementType, direction, amountField, label, requiredContact = false }) {
-    const repository = new MongoRepository(model);
+  constructor({ repository, contactService, contactField, movementType, direction, amountField, label, requiredContact = false }) {
     super(repository);
-    this.documentModel = model;
-    this.contactModel = contactModel;
+    this.contactService = contactService;
     this.contactField = contactField;
     this.movementType = movementType;
     this.direction = direction;
     this.amountField = amountField;
     this.label = label;
     this.requiredContact = requiredContact;
-    // Solo las ventas (contacto = cliente) actualizan métricas de fidelización.
-    this.updatesCustomerStats = contactField === 'customerId';
   }
 
   async list(userId, query = {}) {
@@ -84,28 +79,18 @@ class InventoryDocumentService extends BaseService {
     return this.repository.withTransaction(async (session) => {
       let contact = null;
       if (contactId !== null) {
-        contact = await this.contactModel.findOne({
-          _id: contactId,
-          userId,
-          recordStatus: RECORD_STATUS.ACTIVE,
-        }).session(session).lean();
+        contact = await this.contactService.getActiveForDocument(contactId, userId, session);
         if (!contact) throw HttpError.badRequest(`Invalid or inactive ${this.contactField}`);
       }
 
-      const { employeeId, employeeSnapshot } = await resolveEmployee({
-        Employee,
+      const { employeeId, employeeSnapshot } = await employeesService.resolveResponsible(
         userId,
-        employeeId: data.employeeId,
+        data.employeeId,
         session,
-      });
+      );
 
       const productIds = [...new Set(items.map((item) => item.productId))];
-      const products = await Product.find({
-        userId,
-        _id: { $in: productIds },
-        status: PRODUCT_STATUS.ACTIVE,
-        recordStatus: RECORD_STATUS.ACTIVE,
-      }).session(session).lean();
+      const products = await productsService.findActiveForStockChange(userId, productIds, session);
       if (products.length !== productIds.length) {
         throw HttpError.badRequest('One or more products are invalid or inactive');
       }
@@ -136,12 +121,11 @@ class InventoryDocumentService extends BaseService {
           }
         }
         if (ingredientIds.size) {
-          const ingredients = await Product.find({
+          const ingredients = await productsService.findActiveForStockChange(
             userId,
-            _id: { $in: [...ingredientIds] },
-            status: PRODUCT_STATUS.ACTIVE,
-            recordStatus: RECORD_STATUS.ACTIVE,
-          }).session(session).lean();
+            [...ingredientIds],
+            session,
+          );
           for (const ing of ingredients) ingredientById.set(ing._id, ing);
           if (ingredients.length !== ingredientIds.size) {
             throw HttpError.badRequest('A recipe ingredient is invalid or inactive');
@@ -202,17 +186,12 @@ class InventoryDocumentService extends BaseService {
         if (isOut && (product?.stock ?? 0) < qty) {
           throw HttpError.conflict(`Insufficient stock for ${product?.name ?? `product ${productId}`}`);
         }
-        const stockFilter = {
-          _id: productId,
+        const result = await productsService.changeStock(
           userId,
-          status: PRODUCT_STATUS.ACTIVE,
-          recordStatus: RECORD_STATUS.ACTIVE,
-        };
-        if (isOut) stockFilter.stock = { $gte: qty };
-        const result = await Product.updateOne(
-          stockFilter,
-          { $inc: { stock: isOut ? -qty : qty } },
-          { session },
+          productId,
+          qty,
+          this.direction,
+          session,
         );
         if (result.modifiedCount !== 1) throw HttpError.conflict('Stock changed; retry the document');
       }
@@ -220,6 +199,10 @@ class InventoryDocumentService extends BaseService {
       const documentId = UniqueNumberUtil.generateRaw();
       const movementId = UniqueNumberUtil.generateRaw();
       const total = this.#roundMoney(documentItems.reduce((sum, item) => sum + item.lineTotal, 0));
+      const hasTableNumber = typeof data.tableNumber === 'string' && data.tableNumber.trim().length > 0;
+      const kitchenStatus = data.kitchenStatus
+        ?? (isOut && hasTableNumber ? KITCHEN_STATUS.PENDING : null);
+      const normalizedData = kitchenStatus == null ? data : { ...data, kitchenStatus };
       const documentData = {
         _id: documentId,
         userId,
@@ -238,15 +221,21 @@ class InventoryDocumentService extends BaseService {
         documentData[this.contactField === 'supplierId' ? 'supplierSnapshot' : 'customerSnapshot'] = this.#contactSnapshot(contact);
       }
       // Restaurante: si la venta entra a cocina, nace como comanda pendiente.
-      if (data.kitchenStatus != null) {
-        documentData.kitchenStatus = data.kitchenStatus;
+      if (kitchenStatus != null) {
+        documentData.kitchenStatus = kitchenStatus;
         documentData.kitchenTimeline = {};
+      }
+      if (isOut && (kitchenStatus != null || data.delivery)) {
+        documentData.orderStatus = ORDER_STATUS.PENDING;
+      }
+      if (isOut) {
+        documentData.orderChannel = data.delivery ? 'delivery' : 'on_site';
       }
       if (typeof data.tableNumber === 'string' && data.tableNumber.trim()) {
         documentData.tableNumber = data.tableNumber.trim().slice(0, 20);
       }
       // Estado de cobro: por defecto pagada (tienda). El restaurante la abre "por cobrar".
-      if (data.paymentStatus === 'pending') {
+      if (data.paymentStatus === 'pending' || (isOut && kitchenStatus != null)) {
         documentData.paymentStatus = 'pending';
         documentData.paidAt = null;
       } else {
@@ -254,7 +243,7 @@ class InventoryDocumentService extends BaseService {
         documentData.paidAt = date;
       }
 
-      const [document] = await this.documentModel.create([documentData], { session });
+      const document = await this.repository.createInSession(documentData, session);
       // El movimiento refleja el consumo físico real de stock (insumos expandidos
       // para platos). En compra el consumo coincide con los ítems del documento.
       const movementItems = [...stockConsumption.entries()].map(([productId, qty]) => {
@@ -275,7 +264,7 @@ class InventoryDocumentService extends BaseService {
       // stock. Una venta compuesta únicamente por platos sin receta no mueve
       // existencias, así que no genera movimiento (el documento sí se guarda).
       if (movementItems.length > 0) {
-        await Movement.create([{
+        await movementsService.recordDocumentMovement({
           _id: movementId,
           userId,
           date,
@@ -290,18 +279,14 @@ class InventoryDocumentService extends BaseService {
           items: movementItems,
           createdBy: userId,
           updatedBy: userId,
-        }], { session });
+        }, session);
       }
 
       // Las métricas de fidelización suman cuando la venta se cobra. Una venta
       // pagada al instante (tienda) suma aquí; una "por cobrar" sumará al cobrar.
-      if (this.updatesCustomerStats && contactId !== null && contact && documentData.paymentStatus === 'paid') {
-        await this.#updateCustomerStats(contact, total, date, userId, session);
-      }
-
       // Hook de extensión dentro de la misma transacción (lo usa Ventas para
       // crear el domicilio asociado cuando la venta es a domicilio).
-      await this.afterCreate({ document, data, contact, items: documentItems, userId, session });
+      await this.afterCreate({ document, data: normalizedData, contact, items: documentItems, userId, session });
 
       return this.repository.normalizeOutput(document);
     });
@@ -335,35 +320,6 @@ class InventoryDocumentService extends BaseService {
         [this.amountField]: amount,
       };
     });
-  }
-
-  /**
-   * Actualiza, dentro de la misma transacción de la venta, las métricas de
-   * fidelización del cliente: total gastado, nº de compras, primera/última
-   * compra y nivel. Desnormalizado para que la búsqueda por celular sea inmediata.
-   */
-  async #updateCustomerStats(contact, total, date, userId, session) {
-    const previousSpent = contact.stats?.totalSpent ?? 0;
-    const previousCount = contact.stats?.purchaseCount ?? 0;
-    const newSpent = this.#roundMoney(previousSpent + total);
-    const newCount = previousCount + 1;
-    const firstPurchaseAt = contact.stats?.firstPurchaseAt ?? date;
-    const loyaltyTier = resolveLoyaltyTier(newSpent, newCount);
-
-    await this.contactModel.updateOne(
-      { _id: contact._id, userId },
-      {
-        $set: {
-          'stats.totalSpent': newSpent,
-          'stats.purchaseCount': newCount,
-          'stats.firstPurchaseAt': firstPurchaseAt,
-          'stats.lastPurchaseAt': date,
-          loyaltyTier,
-          updatedBy: userId,
-        },
-      },
-      { session },
-    );
   }
 
   #contactSnapshot(contact) {

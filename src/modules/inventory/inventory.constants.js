@@ -45,6 +45,18 @@ const DOCUMENT_STATUS = Object.freeze({
   VOID: 'void',
 });
 
+/** Ciclo de vida común de pedidos; cada módulo solo modifica su subconjunto. */
+const ORDER_STATUS = Object.freeze({
+  PENDING: 'pending',
+  PREPARING: 'preparing',
+  READY: 'ready',
+  SERVED: 'served',
+  PICKED_UP: 'picked_up',
+  ON_ROUTE: 'on_route',
+  DELIVERED: 'delivered',
+  CANCELLED: 'cancelled',
+});
+
 /** Estado de cobro de una venta. */
 const PAYMENT_STATUS = Object.freeze({
   PAID: 'paid',       // cobrada (tienda al instante; restaurante tras cobrar)
@@ -82,10 +94,10 @@ const BUSINESS_TYPE = Object.freeze({
 
 /** Ciclo de vida de una comanda en cocina (solo restaurantes). */
 const KITCHEN_STATUS = Object.freeze({
-  PENDING: 'pending',
-  PREPARING: 'preparing',
-  READY: 'ready',
-  SERVED: 'served',
+  PENDING: ORDER_STATUS.PENDING,
+  PREPARING: ORDER_STATUS.PREPARING,
+  READY: ORDER_STATUS.READY,
+  SERVED: ORDER_STATUS.SERVED,
 });
 
 /** Transiciones válidas del estado de cocina. */
@@ -120,14 +132,14 @@ const EMPLOYEE_STATUS = Object.freeze({
  */
 const DELIVERY_STATUS = Object.freeze({
   // Fase de cocina (compartida con la comanda; la mueve la cocina).
-  PENDING: 'pending',       // recibido
-  PREPARING: 'preparing',   // cocinando
-  READY: 'ready',           // listo para recoger
+  PENDING: ORDER_STATUS.PENDING,       // recibido
+  PREPARING: ORDER_STATUS.PREPARING,   // cocinando
+  READY: ORDER_STATUS.READY,           // listo para recoger
   // Fase de reparto (solo el domiciliario).
-  PICKED_UP: 'picked_up',   // recogido por el domiciliario
-  ON_ROUTE: 'on_route',     // en camino
-  DELIVERED: 'delivered',   // entregado
-  CANCELLED: 'cancelled',   // cancelado
+  PICKED_UP: ORDER_STATUS.PICKED_UP,   // recogido por el domiciliario
+  ON_ROUTE: ORDER_STATUS.ON_ROUTE,     // en camino
+  DELIVERED: ORDER_STATUS.DELIVERED,   // entregado
+  CANCELLED: ORDER_STATUS.CANCELLED,   // cancelado
 });
 
 /**
@@ -216,6 +228,7 @@ const DOCUMENT_TYPES = Object.freeze(Object.values(DOCUMENT_TYPE));
 const EMPLOYEE_STATUSES = Object.freeze(Object.values(EMPLOYEE_STATUS));
 const LOYALTY_TIERS = Object.freeze(Object.values(LOYALTY_TIER));
 const DELIVERY_STATUSES = Object.freeze(Object.values(DELIVERY_STATUS));
+const ORDER_STATUSES = Object.freeze(Object.values(ORDER_STATUS));
 const PRODUCT_STATUSES = Object.freeze(Object.values(PRODUCT_STATUS));
 const PRODUCT_TYPES = Object.freeze(Object.values(PRODUCT_TYPE));
 /** Tipos que se pueden comprar (entran stock). */
@@ -245,6 +258,8 @@ module.exports = {
   MOVEMENT_DIRECTIONS,
   MOVEMENT_SOURCE_TYPE,
   DOCUMENT_STATUS,
+  ORDER_STATUS,
+  ORDER_STATUSES,
   PAYMENT_STATUS,
   PAYMENT_STATUSES,
   CANCEL_REASON,

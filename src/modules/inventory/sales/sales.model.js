@@ -1,7 +1,7 @@
 'use strict';
 
 const { mongoose, applyPlatformSchema } = require('nemkit');
-const { DOCUMENT_STATUS } = require('../inventory.constants');
+const { DOCUMENT_STATUS, ORDER_STATUSES } = require('../inventory.constants');
 
 const SaleItemSchema = new mongoose.Schema({
   productId: { type: Number, required: true, min: 1 },
@@ -26,6 +26,8 @@ const SaleSchema = applyPlatformSchema({
   employeeSnapshot: { name: { type: String, default: '' } },
   // Restaurante: comanda en cocina. null = venta normal (no pasa por cocina).
   kitchenStatus: { type: String, enum: ['pending', 'preparing', 'ready', 'served'], default: null, index: true },
+  orderStatus: { type: String, enum: ORDER_STATUSES, default: null, index: true },
+  orderChannel: { type: String, enum: ['delivery', 'on_site'], default: 'on_site', index: true },
   tableNumber: { type: String, trim: true, default: '', maxlength: 20 },
   kitchenTimeline: {
     startedAt: { type: Date, default: null },
@@ -51,5 +53,6 @@ SaleSchema.index({ userId: 1, customerId: 1, date: -1 });
 SaleSchema.index({ userId: 1, employeeId: 1, date: -1 });
 // Cola de cocina: comandas activas ordenadas por fecha.
 SaleSchema.index({ userId: 1, kitchenStatus: 1, date: 1 });
+SaleSchema.index({ userId: 1, orderStatus: 1, date: 1 });
 
 module.exports = mongoose.model('inventory_sales', SaleSchema);

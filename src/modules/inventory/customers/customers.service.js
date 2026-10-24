@@ -1,14 +1,22 @@
 'use strict';
 
 const { HttpError, RECORD_STATUS } = require('nemkit');
-const Sale = require('../sales/sales.model');
 const { ContactService } = require('../contacts/contact.service');
 const { CustomersRepository } = require('./customers.repository');
 const { pagination, positiveInteger, escapeRegex } = require('../validation');
+const { resolveLoyaltyTier } = require('../inventory.constants');
 
 class CustomersService extends ContactService {
   constructor() {
-    super(new CustomersRepository(), Sale, 'customerId', 'Customer');
+    super(
+      new CustomersRepository(),
+      (userId, customerId) => this.#salesService().hasCustomerSales(userId, customerId),
+      'Customer',
+    );
+  }
+
+  #salesService() {
+    return require('../sales/sales.service').salesService;
   }
 
   update(id, data, userId) {
@@ -50,26 +58,73 @@ class CustomersService extends ContactService {
     const customer = await this.getOwned(id, userId);
     const { page, limit } = pagination(query);
     const customerId = positiveInteger(id, 'customerId');
-
-    const filter = { userId, customerId, recordStatus: RECORD_STATUS.ACTIVE };
-
-    const [sales, total] = await Promise.all([
-      Sale.find(filter)
-        .select('_id date total items employeeSnapshot')
-        .sort({ date: -1, _id: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit)
-        .lean(),
-      Sale.countDocuments(filter),
+    const salesService = this.#salesService();
+    const [history, analytics] = await Promise.all([
+      salesService.listCustomerHistory(
+        userId,
+        customerId,
+        { page, limit },
+      ),
+      salesService.customerAnalytics(userId, customerId),
     ]);
 
     return {
       customer,
+      analytics,
       history: {
-        data: sales.map(({ _id, ...sale }) => ({ id: _id, ...sale })),
-        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+        data: history.sales,
+        pagination: {
+          page,
+          limit,
+          total: history.total,
+          totalPages: Math.ceil(history.total / limit),
+        },
       },
     };
+  }
+
+  getActiveForDocument(id, userId, session = null) {
+    const customerId = positiveInteger(id, 'customerId');
+    return this.repository.findActiveForDocument(customerId, userId, session);
+  }
+
+  dashboardMetrics(userId, since) {
+    return this.repository.dashboardMetrics(userId, since);
+  }
+
+  async recordSale(customer, total, date, userId, session = null) {
+    const previousSpent = customer.stats?.totalSpent ?? 0;
+    const previousCount = customer.stats?.purchaseCount ?? 0;
+    const newSpent = this.#roundMoney(previousSpent + total);
+    const newCount = previousCount + 1;
+
+    return this.repository.updateSaleStats(customer._id, userId, {
+      'stats.totalSpent': newSpent,
+      'stats.purchaseCount': newCount,
+      'stats.firstPurchaseAt': customer.stats?.firstPurchaseAt ?? date,
+      'stats.lastPurchaseAt': date,
+      loyaltyTier: resolveLoyaltyTier(newSpent, newCount),
+    }, session);
+  }
+
+  async reverseSale(customerId, total, userId, session = null) {
+    const customer = await this.getActiveForDocument(customerId, userId, session);
+    if (!customer) return false;
+
+    const newSpent = Math.max(0, this.#roundMoney((customer.stats?.totalSpent ?? 0) - total));
+    const newCount = Math.max(0, (customer.stats?.purchaseCount ?? 0) - 1);
+
+    await this.repository.updateSaleStats(customer._id, userId, {
+      'stats.totalSpent': newSpent,
+      'stats.purchaseCount': newCount,
+      loyaltyTier: resolveLoyaltyTier(newSpent, newCount),
+    }, session);
+
+    return true;
+  }
+
+  #roundMoney(value) {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
   }
 }
 

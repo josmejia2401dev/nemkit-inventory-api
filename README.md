@@ -10,6 +10,19 @@ Todos los documentos usan `applyPlatformSchema` y `MongoRepository` de `nemkit`,
 
 `recordStatus` usa los estados de plataforma exportados como `RECORD_STATUS` por `nemkit`. Los estados de disponibilidad de producto, tipos de movimiento y direcciones de stock se definen en `src/modules/inventory/inventory.constants.js`; modelos, validadores y servicios consumen esa misma fuente. Las listas son constantes congeladas en código, no documentos de catálogo en MongoDB.
 
+El backend se organiza por micro módulos cohesivos. Cada módulo mantiene sus propias rutas, controlador, servicio, validador, modelo y repositorio cuando aplica. Los controladores solo adaptan HTTP; las dependencias entre módulos se realizan mediante servicios. Las operaciones MongoDB comunes se reutilizan desde `BaseService` y `MongoRepository` de `nemkit`; las consultas específicas permanecen en el repositorio del módulo dueño de los datos.
+
+### Módulos
+
+- **Foundation reutilizado:** autenticación, usuarios, tokens y feedback. Sus extensiones de este producto son perfil, configuración del negocio, anuncios, notificaciones y plataforma (`overview`, `users`, `companies`, `operations`).
+- **Inventario con datos propios:** `categories`, `products`, `customers`, `suppliers`, `employees`, `movements`, `purchases`, `sales`, `deliveries` y `tables`. Cada uno posee su modelo y repositorio; ningún otro módulo consulta esos modelos o repositorios directamente.
+- **Casos de uso de lectura:** `dashboard` y `reports` coordinan consultas a través de servicios propietarios y no tienen modelo propio.
+- **Soporte compartido:** `documents` conserva las operaciones transaccionales comunes a compras y ventas mediante `InventoryDocumentRepository`; `contacts` centraliza CRUD común de clientes y proveedores. No son recursos HTTP independientes.
+- **Flujo de cocina:** `kitchen` mantiene su propio controller, service, validator y router, y delega transiciones al módulo `sales`.
+- **Asociaciones de plataforma:** `inventory/platform-members` expone al superadministrador la asociación, desasociación e historial de empleados. `foundation/platform` no importa servicios de `inventory`; ambos routers se componen en `src/routes/index.js`.
+
+Las operaciones transaccionales reciben y propagan la misma sesión MongoDB entre repositorios. Cada servicio conserva reglas de negocio; los repositorios encapsulan las consultas específicas de su modelo. Los controladores validan y adaptan HTTP, mientras que los servicios vuelven a validar invariantes necesarias para llamadas internas. `src/modules/inventory/inventory.module.js` enlaza las operaciones de ventas requeridas por domicilios, manteniendo la dependencia en una sola dirección y sin imports circulares.
+
 ## Política de eliminación
 
 Los endpoints `DELETE` de productos y categorías hacen borrado lógico (`recordStatus: "deleted"`). El ciclo de vida de plataforma también contempla `active`, `inactive` y `archived`; esos valores no son borrado físico. Los movimientos son registros históricos inmutables y no tienen endpoint de eliminación.
@@ -30,7 +43,10 @@ Un producto con stock no se puede eliminar lógicamente hasta registrar una sali
 - `GET/POST /api/v1/purchases`, `GET /api/v1/purchases/:id`
 - `GET/POST /api/v1/sales`, `GET /api/v1/sales/:id`
 - `GET /api/v1/dashboard/summary`
-- `/api/v1/auth` y `/api/v1/profile` heredadas del foundation
+- `/api/v1/auth`, `/api/v1/profile` y `/api/v1/settings/business` del foundation
+- `/api/v1/notifications`, `/api/v1/notifications/unread-count`, `/api/v1/notifications/:id` y `/api/v1/notifications/read-all`
+- `/api/v1/platform/announcements` para crear, publicar y archivar avisos (solo `SUPERADMIN`)
+- `/api/v1/platform/companies/:companyId/members` para asociar/desasociar empleados y `/api/v1/platform/users/:userId/employment-history` para ver su historial (solo `SUPERADMIN`)
 
 El prefijo efectivo depende de `API_PREFIX` en la configuración de entorno.
 
@@ -48,6 +64,8 @@ El backend requiere MongoDB configurado como replica set (MongoDB Atlas cumple e
 
 Los reportes agrupados por día, semana y mes usan `$dateTrunc` y requieren MongoDB 5.0 o posterior.
 
+Los avisos publicados generan una entrega persistente en la bandeja de cada usuario activo, excepto `SUPERADMIN`. La bandeja es el canal inicial y fuente de historial; Web Push del navegador queda para una etapa posterior. Los índices de anuncios y entregas se sincronizan al iniciar la API.
+
 ## Desarrollo
 
-Instalar dependencias y usar `npm run dev` o `npm start`. Requiere Node.js 20.19 o superior y las variables de entorno de `.env.example`. Ejecutar la suite con `npm test`.
+Instalar dependencias y usar `npm run dev` o `npm start`. Requiere Node.js 20.19 o superior y las variables de entorno de `.env.example`.

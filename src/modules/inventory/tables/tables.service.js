@@ -2,12 +2,7 @@
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
 const { TablesRepository } = require('./tables.repository');
-const Sale = require('../sales/sales.model');
 const { pagination, positiveInteger, assertNoEmptyUpdate } = require('../validation');
-const { KITCHEN_STATUS } = require('../inventory.constants');
-
-const ACTIVE_KITCHEN = [KITCHEN_STATUS.PENDING, KITCHEN_STATUS.PREPARING, KITCHEN_STATUS.READY];
-
 class TablesService extends BaseService {
   constructor() {
     super(new TablesRepository());
@@ -26,24 +21,11 @@ class TablesService extends BaseService {
    * No se persiste ocupación; se calcula para evitar desincronización.
    */
   async listWithOccupancy(userId) {
-    const tables = await this.repository.model
-      .find({ userId, recordStatus: RECORD_STATUS.ACTIVE })
-      .select('_id name description')
-      .sort({ name: 1 })
-      .lean();
+    const tables = await this.repository.listForOccupancy(userId);
 
     // Mesas con comanda activa (agrupadas por nombre de mesa).
-    const busy = await Sale.aggregate([
-      {
-        $match: {
-          userId,
-          recordStatus: RECORD_STATUS.ACTIVE,
-          kitchenStatus: { $in: ACTIVE_KITCHEN },
-          tableNumber: { $gt: '' },
-        },
-      },
-      { $group: { _id: '$tableNumber', orders: { $sum: 1 } } },
-    ]);
+    const { salesService } = require('../sales/sales.service');
+    const busy = await salesService.activeKitchenOrderCountsByTable(userId);
     const busyByName = new Map(busy.map((row) => [row._id, row.orders]));
 
     return tables.map((table) => ({

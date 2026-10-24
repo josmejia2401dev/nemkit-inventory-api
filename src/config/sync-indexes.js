@@ -23,6 +23,8 @@ async function syncIndexes() {
     require('../modules/inventory/deliveries/deliveries.model'),
     require('../modules/inventory/tables/tables.model'),
     require('../modules/foundation/feedback/feedback.model'),
+    require('../modules/foundation/announcements/announcements.model'),
+    require('../modules/foundation/notifications/notifications.model'),
   ];
 
   for (const model of models) {

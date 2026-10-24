@@ -2,12 +2,10 @@
 
 const { BaseService, HttpError, UniqueNumberUtil, RECORD_STATUS } = require('nemkit');
 const { MovementsRepository } = require('./movements.repository');
-const { ProductsRepository } = require('../products/products.repository');
-const Employee = require('../employees/employees.model');
-const { resolveEmployee } = require('../employees/employee-responsible');
+const { productsService } = require('../products/products.service');
+const { employeesService } = require('../employees/employees.service');
 const { pagination, positiveInteger, parseDate } = require('../validation');
 const {
-  PRODUCT_STATUS,
   MOVEMENT_TYPE,
   MOVEMENT_TYPES,
   MOVEMENT_DIRECTION,
@@ -25,7 +23,6 @@ const TYPE_DIRECTIONS = {
 class MovementsService extends BaseService {
   constructor() {
     super(new MovementsRepository());
-    this.products = new ProductsRepository();
   }
 
   async list(userId, query = {}) {
@@ -57,9 +54,7 @@ class MovementsService extends BaseService {
     });
     const productIds = [...new Set(result.data.flatMap((movement) => movement.items.map((item) => item.productId)))];
     const products = productIds.length
-      ? await this.products.model.find({ userId, _id: { $in: productIds } })
-        .select('_id name sku')
-        .lean()
+      ? await productsService.findSummariesByIds(userId, productIds)
       : [];
     const productById = new Map(products.map((product) => [product._id, product]));
 
@@ -73,6 +68,57 @@ class MovementsService extends BaseService {
           sku: productById.get(item.productId)?.sku || '',
         })),
       })),
+    };
+  }
+
+  async dashboardRecent(userId, limit = 10) {
+    const movements = await this.repository.recent(userId, limit);
+    return movements.map(({ _id, userId: _userId, ...movement }) => ({ id: _id, ...movement }));
+  }
+
+  async dashboardTopSellingProducts(userId, since) {
+    const rows = await this.repository.topSellingProductUnits(userId, since);
+    const productIds = rows.map((row) => row._id);
+    const products = productIds.length
+      ? await productsService.findActiveSummariesByIds(userId, productIds)
+      : [];
+    const productById = new Map(products.map((product) => [product._id, product]));
+
+    return rows.flatMap((row) => {
+      const product = productById.get(row._id);
+      return product
+        ? [{ productId: row._id, name: product.name, sku: product.sku, unitsSold: row.unitsSold }]
+        : [];
+    });
+  }
+
+  async report(userId, { from, toExclusive, type, productId, page, limit }) {
+    const filter = {
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      date: { $gte: from, $lt: toExclusive },
+    };
+    if (type !== undefined) filter.type = type;
+    if (productId !== undefined) filter['items.productId'] = productId;
+
+    const { documents, total } = await this.repository.listForReport(filter, { page, limit });
+    const productIds = [...new Set(documents.flatMap((movement) => movement.items.map((item) => item.productId)))];
+    const products = productIds.length
+      ? await productsService.findSummariesByIds(userId, productIds)
+      : [];
+    const productById = new Map(products.map((product) => [product._id, product]));
+
+    return {
+      data: documents.map(({ _id, userId: _userId, ...movement }) => ({
+        id: _id,
+        ...movement,
+        items: movement.items.map((item) => ({
+          ...item,
+          name: productById.get(item.productId)?.name || `Producto #${item.productId}`,
+          sku: productById.get(item.productId)?.sku || '',
+        })),
+      })),
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 
@@ -99,20 +145,14 @@ class MovementsService extends BaseService {
     }
 
     return this.repository.withTransaction(async (session) => {
-      const { employeeId, employeeSnapshot } = await resolveEmployee({
-        Employee,
+      const { employeeId, employeeSnapshot } = await employeesService.resolveResponsible(
         userId,
-        employeeId: data.employeeId,
+        data.employeeId,
         session,
-      });
+      );
 
       const productIds = [...totals.keys()];
-      const products = await this.products.model.find({
-        userId,
-        _id: { $in: productIds },
-        status: PRODUCT_STATUS.ACTIVE,
-        recordStatus: RECORD_STATUS.ACTIVE,
-      }).session(session).lean();
+      const products = await productsService.findActiveForStockChange(userId, productIds, session);
 
       if (products.length !== productIds.length) {
         throw HttpError.badRequest('One or more products are invalid or inactive');
@@ -125,28 +165,19 @@ class MovementsService extends BaseService {
           throw HttpError.conflict(`Insufficient stock for ${product.name}`);
         }
 
-        const filter = {
-          _id: product._id,
+        const result = await productsService.changeStock(
           userId,
-          status: PRODUCT_STATUS.ACTIVE,
-          recordStatus: RECORD_STATUS.ACTIVE,
-        };
-
-        if (direction === MOVEMENT_DIRECTION.OUT) {
-          filter.stock = { $gte: quantity };
-        }
-
-        const result = await this.products.model.updateOne(
-          filter,
-          { $inc: { stock: direction === MOVEMENT_DIRECTION.IN ? quantity : -quantity } },
-          { session },
+          product._id,
+          quantity,
+          direction,
+          session,
         );
         if (result.modifiedCount !== 1) {
           throw HttpError.conflict('Stock changed; retry the movement');
         }
       }
 
-      const movementDocuments = [{
+      const movementData = {
         _id: UniqueNumberUtil.generateRaw(),
         type: data.type,
         notes: data.notes ?? '',
@@ -157,8 +188,8 @@ class MovementsService extends BaseService {
         userId,
         createdBy: userId,
         updatedBy: userId,
-      }];
-      const [movement] = await this.repository.model.create(movementDocuments, { session });
+      };
+      const movement = await this.repository.createInSession(movementData, session);
 
       return this.repository.normalizeOutput(movement);
     });
@@ -171,6 +202,11 @@ class MovementsService extends BaseService {
     }
 
     return movement;
+  }
+
+  async recordDocumentMovement(data, session) {
+    const movement = await this.repository.createInSession(data, session);
+    return this.repository.normalizeOutput(movement);
   }
 
   #validateItems(data) {

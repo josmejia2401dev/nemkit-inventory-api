@@ -7,7 +7,7 @@ const { deliveriesController: c } = require('./deliveries.controller');
 const router = express.Router();
 
 // Gestión (no la hace el propio domiciliario): asignar y anular.
-const MANAGEMENT = ['ADMIN', 'SUPERADMIN', 'CASHIER', 'SELLER', 'WAITER'];
+const MANAGEMENT = ['ADMIN', 'CASHIER', 'SELLER', 'WAITER'];
 
 router.get('/', c.list.bind(c));
 router.get('/:id', c.get.bind(c));

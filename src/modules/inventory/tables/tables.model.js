@@ -9,7 +9,6 @@ const TableSchema = applyPlatformSchema({
   description: { type: String, trim: true, default: '', maxlength: 200 },
 });
 
-TableSchema.index({ userId: 1, name: 1 });
 TableSchema.index({ userId: 1, name: 1 }, {
   unique: true,
   partialFilterExpression: { recordStatus: RECORD_STATUS.ACTIVE },

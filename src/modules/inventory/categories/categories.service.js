@@ -2,7 +2,6 @@
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
 const { CategoriesRepository } = require('./categories.repository');
-const { ProductsRepository } = require('../products/products.repository');
 const {
   pagination,
   positiveInteger,
@@ -13,7 +12,19 @@ const {
 class CategoriesService extends BaseService {
   constructor() {
     super(new CategoriesRepository());
-    this.products = new ProductsRepository();
+  }
+
+  existsActive(id, userId) {
+    const categoryId = positiveInteger(id, 'categoryId');
+    return this.exists({
+      _id: categoryId,
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+    });
+  }
+
+  findNamesByIds(userId, categoryIds) {
+    return this.repository.findNamesByIds(userId, categoryIds);
   }
 
   async list(userId, query = {}) {
@@ -72,10 +83,8 @@ class CategoriesService extends BaseService {
     const categoryId = positiveInteger(id, 'categoryId');
     await this.getOwned(categoryId, userId);
 
-    const hasLinkedProducts = await this.products.exists(
-      { userId, categoryId },
-      { includeDeleted: true },
-    );
+    const { productsService } = require('../products/products.service');
+    const hasLinkedProducts = await productsService.hasCategoryReferences(userId, categoryId);
 
     if (hasLinkedProducts) {
       throw HttpError.conflict('Category still has linked products; preserve the category for inventory history');

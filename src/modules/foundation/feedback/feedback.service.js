@@ -1,12 +1,12 @@
 'use strict';
 
-const { BaseService, MongoRepository, HttpError, UniqueNumberUtil, RECORD_STATUS } = require('nemkit');
-const Feedback = require('./feedback.model');
-const { FEEDBACK_TYPES, FEEDBACK_STATUSES, FEEDBACK_STATUS } = Feedback;
+const { BaseService, HttpError, UniqueNumberUtil } = require('nemkit');
+const { FeedbackRepository } = require('./feedback.repository');
+const { FEEDBACK_TYPES, FEEDBACK_STATUSES, FEEDBACK_STATUS } = require('./feedback.constants');
 
 class FeedbackService extends BaseService {
   constructor() {
-    super(new MongoRepository(Feedback));
+    super(new FeedbackRepository());
     this.notFoundMessage = 'Feedback not found';
   }
 
@@ -82,6 +82,17 @@ class FeedbackService extends BaseService {
       throw HttpError.badRequest(`status must be one of: ${FEEDBACK_STATUSES.join(', ')}`);
     }
     return this.updateById(id, { status }, userId);
+  }
+
+  countByStatus(status) {
+    if (!FEEDBACK_STATUSES.includes(status)) {
+      throw HttpError.badRequest(`status must be one of: ${FEEDBACK_STATUSES.join(', ')}`);
+    }
+    return this.countDocuments({ status });
+  }
+
+  countAll() {
+    return this.countDocuments({});
   }
 }
 

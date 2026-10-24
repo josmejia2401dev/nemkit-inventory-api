@@ -2,6 +2,7 @@
 
 const { success, created, paginated, createValidator, HttpError } = require('nemkit');
 const { employeesService: service } = require('./employees.service');
+const { associateEmployeeSchema } = require('./employee-association.validator');
 const {
   EMPLOYEE_ROLES,
   DOCUMENT_TYPES,
@@ -90,6 +91,21 @@ class EmployeesController {
     }
   }
 
+  async associate(req, res, next) {
+    try {
+      const { errorResponse, sanitized } = associateEmployeeSchema.check(req.body, req);
+      if (errorResponse) return res.status(400).json(errorResponse);
+      return created(res, await service.associateExistingUser(
+        sanitized.email,
+        sanitized.role,
+        req.user.id,
+        req.user.userId ?? req.user.id,
+      ), 'Employee account associated');
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async get(req, res, next) {
     try {
       return success(res, await service.getOwned(req.params.id, req.user.id));
@@ -113,8 +129,12 @@ class EmployeesController {
 
   async remove(req, res, next) {
     try {
-      await service.remove(req.params.id, req.user.id);
-      return success(res, null, 'Employee deleted');
+      await service.remove(
+        req.params.id,
+        req.user.id,
+        req.user.userId ?? req.user.id,
+      );
+      return success(res, null, 'Employee account disassociated');
     } catch (error) {
       next(error);
     }

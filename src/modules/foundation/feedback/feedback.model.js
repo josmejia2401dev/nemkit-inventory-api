@@ -1,23 +1,7 @@
 'use strict';
 
 const { mongoose, applyPlatformSchema } = require('nemkit');
-
-/** Categorías de reporte que puede enviar un usuario. */
-const FEEDBACK_TYPE = Object.freeze({
-  BUG: 'bug',
-  SUGGESTION: 'suggestion',
-  OTHER: 'other',
-});
-
-/** Ciclo de atención del reporte por parte del super admin. */
-const FEEDBACK_STATUS = Object.freeze({
-  OPEN: 'open',
-  REVIEWED: 'reviewed',
-  RESOLVED: 'resolved',
-});
-
-const FEEDBACK_TYPES = Object.freeze(Object.values(FEEDBACK_TYPE));
-const FEEDBACK_STATUSES = Object.freeze(Object.values(FEEDBACK_STATUS));
+const { FEEDBACK_TYPE, FEEDBACK_TYPES, FEEDBACK_STATUS, FEEDBACK_STATUSES } = require('./feedback.constants');
 
 /**
  * Reporte transversal de bugs/hallazgos/sugerencias. Lo crea cualquier usuario
@@ -41,7 +25,3 @@ const FeedbackSchema = applyPlatformSchema({
 FeedbackSchema.index({ status: 1, createdAt: -1 });
 
 module.exports = mongoose.model('feedback', FeedbackSchema);
-module.exports.FEEDBACK_TYPE = FEEDBACK_TYPE;
-module.exports.FEEDBACK_TYPES = FEEDBACK_TYPES;
-module.exports.FEEDBACK_STATUS = FEEDBACK_STATUS;
-module.exports.FEEDBACK_STATUSES = FEEDBACK_STATUSES;

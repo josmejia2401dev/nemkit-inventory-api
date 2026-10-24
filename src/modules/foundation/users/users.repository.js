@@ -1,7 +1,9 @@
 'use strict';
 
-const { MongoRepository } = require('nemkit');
+const { MongoRepository, RECORD_STATUS } = require('nemkit');
 const User = require('./users.model');
+const { ACCOUNT_TYPE } = require('./users.constants');
+const { applyMongoTimeout } = require('../../../config/mongo-query');
 
 class UsersRepository extends MongoRepository {
   constructor() { super(User); }
@@ -28,15 +30,110 @@ class UsersRepository extends MongoRepository {
     return this.normalizeOutput(doc);
   }
 
+  async createEmployeeAccount(data, actorId, session) {
+    const input = this.normalizeInput(data);
+    const [doc] = await this.model.create([{
+      ...input,
+      createdBy: actorId,
+      updatedBy: actorId,
+    }], { session });
+    return this.normalizeOutput(doc);
+  }
+
+  async updateEmployeeAccount(id, data, actorId, session) {
+    const doc = await this.model.findOneAndUpdate(
+      { _id: id, ...this._baseFilter() },
+      { $set: { ...data, updatedBy: actorId } },
+      { returnDocument: 'after', session },
+    );
+    return this.normalizeOutput(doc);
+  }
+
+  async findAvailableEmployeeByEmail(email, session = null) {
+    let query = this.model.findOne({
+      ...this._baseFilter(),
+      email,
+      accountType: ACCOUNT_TYPE.UNASSIGNED_EMPLOYEE,
+      employeeId: null,
+      tenantId: null,
+      recordStatus: RECORD_STATUS.INACTIVE,
+    });
+    if (session) query = query.session(session);
+    return this.normalizeOutput(await query.lean());
+  }
+
+  async associateUnassignedEmployee(id, association, actorId, session) {
+    const doc = await this.model.findOneAndUpdate(
+      {
+        ...this._baseFilter(),
+        _id: id,
+        accountType: ACCOUNT_TYPE.UNASSIGNED_EMPLOYEE,
+        employeeId: null,
+        tenantId: null,
+        recordStatus: RECORD_STATUS.INACTIVE,
+      },
+      { $set: { ...association, updatedBy: actorId } },
+      { returnDocument: 'after', session },
+    );
+    return this.normalizeOutput(doc);
+  }
+
+  async disassociateEmployee(id, tenantId, employeeId, actorId, session) {
+    const doc = await this.model.findOneAndUpdate(
+      {
+        ...this._baseFilter(),
+        _id: id,
+        tenantId,
+        employeeId,
+        $or: [
+          { accountType: ACCOUNT_TYPE.EMPLOYEE },
+          { accountType: null },
+        ],
+      },
+      {
+        $set: {
+          accountType: ACCOUNT_TYPE.UNASSIGNED_EMPLOYEE,
+          recordStatus: RECORD_STATUS.INACTIVE,
+          tenantId: null,
+          employeeId: null,
+          roles: ['USER'],
+          updatedBy: actorId,
+        },
+      },
+      { returnDocument: 'after', session },
+    );
+    return this.normalizeOutput(doc);
+  }
+
+  async findByIds(ids) {
+    const docs = await this._applyTimeout(this.model.find({
+      _id: { $in: ids },
+      ...this._baseFilter(),
+    }).lean());
+    return docs.map((doc) => this.normalizeOutput(doc));
+  }
+
   /**
    * Listado GLOBAL de usuarios (uso exclusivo del super admin). No acota por
    * tenant. Soporta filtro por rol, por tipo (dueños vs empleados) y búsqueda.
    */
   async listGlobal({ page = 1, limit = 20, search = null, role = null, kind = null } = {}) {
-    const filter = {};
-    if (role) filter.roles = role;
-    if (kind === 'owner') filter.employeeId = null;
-    if (kind === 'employee') filter.employeeId = { $ne: null };
+    const criteria = [];
+    if (role) criteria.push({ roles: role });
+    if (kind === 'owner') {
+      criteria.push({ $or: [
+        { accountType: ACCOUNT_TYPE.COMPANY_OWNER },
+        {
+          accountType: null,
+          employeeId: null,
+          roles: { $nin: ['SUPERADMIN'] },
+        },
+      ] });
+    }
+    if (kind === 'employee') criteria.push({ employeeId: { $ne: null } });
+    if (kind === 'unassigned_employee') criteria.push({ accountType: ACCOUNT_TYPE.UNASSIGNED_EMPLOYEE });
+    if (kind === 'super_admin') criteria.push({ roles: 'SUPERADMIN' });
+    const filter = criteria.length ? { $and: criteria } : {};
     return this.filterAndPaginate(filter, {
       page,
       limit,
@@ -50,7 +147,16 @@ class UsersRepository extends MongoRepository {
    * Un usuario dueño no tiene employeeId.
    */
   async listOwners({ page = 1, limit = 20, search = null } = {}) {
-    const filter = { employeeId: null };
+    const filter = {
+      $and: [{ $or: [
+        { accountType: ACCOUNT_TYPE.COMPANY_OWNER },
+        {
+          accountType: null,
+          employeeId: null,
+          roles: { $nin: ['SUPERADMIN'] },
+        },
+      ] }],
+    };
     return this.filterAndPaginate(filter, {
       page,
       limit,
@@ -71,6 +177,29 @@ class UsersRepository extends MongoRepository {
   /** Cuenta usuarios de un tenant (dueño + empleados). */
   countByTenant(tenantId) {
     return this.model.countDocuments({ tenantId, ...this._baseFilter() });
+  }
+
+  countByTenants(tenantIds) {
+    if (!tenantIds.length) return Promise.resolve([]);
+    const aggregation = this.model.aggregate([
+      { $match: { tenantId: { $in: tenantIds }, ...this._baseFilter() } },
+      { $group: { _id: '$tenantId', count: { $sum: 1 } } },
+    ]);
+    return applyMongoTimeout(aggregation, this.queryTimeoutMs);
+  }
+
+  async listActiveNotificationRecipientsAfter(id, limit = 500) {
+    const users = await this._applyTimeout(this.model.find({
+      ...this._baseFilter(),
+      _id: { $gt: id },
+      recordStatus: RECORD_STATUS.ACTIVE,
+      roles: { $nin: ['SUPERADMIN'] },
+    })
+      .select('_id tenantId')
+      .sort({ _id: 1 })
+      .limit(limit)
+      .lean());
+    return users.map((user) => ({ id: user._id, tenantId: user.tenantId ?? user._id }));
   }
 }
 

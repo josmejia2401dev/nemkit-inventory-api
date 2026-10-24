@@ -1,36 +1,30 @@
 'use strict';
 
 const { HttpError, RECORD_STATUS, UniqueNumberUtil } = require('nemkit');
-const Sale = require('./sales.model');
-const Customer = require('../customers/customers.model');
-const Product = require('../products/products.model');
-const Movement = require('../movements/movements.model');
-const Delivery = require('../deliveries/deliveries.model');
-const Employee = require('../employees/employees.model');
+const { employeesService } = require('../employees/employees.service');
+const { productsService } = require('../products/products.service');
+const { movementsService } = require('../movements/movements.service');
+const { deliveriesService } = require('../deliveries/deliveries.service');
 const { InventoryDocumentService } = require('../documents/document.service');
+const { SalesRepository } = require('./sales.repository');
+const { customersService } = require('../customers/customers.service');
 const { positiveInteger } = require('../validation');
 const {
   PRODUCT_TYPE,
   MOVEMENT_TYPE,
   MOVEMENT_DIRECTION,
   DOCUMENT_STATUS,
+  ORDER_STATUS,
   PAYMENT_STATUS,
   CANCEL_REASONS,
   DELIVERY_STATUS,
-  EMPLOYEE_ROLE,
-  EMPLOYEE_STATUS,
-  KITCHEN_STATUS,
-  KITCHEN_STATUSES,
-  KITCHEN_TRANSITIONS,
-  KITCHEN_TO_DELIVERY_STATUS,
-  resolveLoyaltyTier,
 } = require('../inventory.constants');
 
 class SalesService extends InventoryDocumentService {
   constructor() {
     super({
-      model: Sale,
-      contactModel: Customer,
+      repository: new SalesRepository(),
+      contactService: customersService,
       contactField: 'customerId',
       movementType: MOVEMENT_TYPE.SALE,
       direction: MOVEMENT_DIRECTION.OUT,
@@ -47,6 +41,10 @@ class SalesService extends InventoryDocumentService {
    * existencias ni genera otra venta).
    */
   async afterCreate({ document, data, contact, items, userId, session }) {
+    if (document.paymentStatus === PAYMENT_STATUS.PAID && contact) {
+      await customersService.recordSale(contact, document.total, document.date, userId, session);
+    }
+
     const delivery = data.delivery;
     if (!delivery) return;
 
@@ -58,7 +56,7 @@ class SalesService extends InventoryDocumentService {
     const location = this.#validateDeliveryLocation(delivery.location);
     const courier = await this.#resolveCourier(userId, delivery.courierId, session);
 
-    await Delivery.create([{
+    await deliveriesService.createFromSale({
       _id: UniqueNumberUtil.generateRaw(),
       userId,
       saleId: document._id,
@@ -86,7 +84,7 @@ class SalesService extends InventoryDocumentService {
       courierSnapshot: courier.courierSnapshot,
       createdBy: userId,
       updatedBy: userId,
-    }], { session });
+    }, session);
   }
 
   #validateDeliveryLocation(location) {
@@ -107,15 +105,14 @@ class SalesService extends InventoryDocumentService {
   async #resolveCourier(userId, courierId, session) {
     if (courierId == null || courierId === '') return { courierId: null, courierSnapshot: { name: '' } };
     const id = positiveInteger(courierId, 'delivery.courierId');
-    const employee = await Employee.findOne({
-      _id: id,
-      userId,
-      role: EMPLOYEE_ROLE.COURIER,
-      status: EMPLOYEE_STATUS.ACTIVE,
-      recordStatus: RECORD_STATUS.ACTIVE,
-    }).select('_id name').session(session).lean();
-    if (!employee) throw HttpError.badRequest('Invalid or inactive courier');
-    return { courierId: employee._id, courierSnapshot: { name: employee.name } };
+    try {
+      return await employeesService.getActiveCourierSnapshot(userId, id, session);
+    } catch (error) {
+      if (error.statusCode === 400 && error.message.startsWith('Invalid or inactive courier')) {
+        throw HttpError.badRequest('Invalid or inactive courier');
+      }
+      throw error;
+    }
   }
 
   /**
@@ -135,11 +132,7 @@ class SalesService extends InventoryDocumentService {
     const voidNote = typeof note === 'string' ? note.trim().slice(0, 300) : '';
 
     return this.repository.withTransaction(async (session) => {
-      const sale = await Sale.findOne({
-        _id: id,
-        userId,
-        recordStatus: RECORD_STATUS.ACTIVE,
-      }).session(session).lean();
+      const sale = await this.repository.findOwnedInSession(id, userId, session);
       if (!sale) throw HttpError.notFound('Sale not found');
       if (sale.status === DOCUMENT_STATUS.VOID) {
         throw HttpError.conflict('Sale is already void');
@@ -148,10 +141,7 @@ class SalesService extends InventoryDocumentService {
       // Reponer stock EXPANDIENDO recetas, igual que se descontó en la venta:
       // un plato (prepared) no repone stock propio, repone el de sus insumos.
       const soldIds = [...new Set(sale.items.map((item) => item.productId))];
-      const soldProducts = await Product.find({ userId, _id: { $in: soldIds } })
-        .select('_id type recipe purchasePrice name')
-        .session(session)
-        .lean();
+      const soldProducts = await productsService.findSaleReversalDetails(userId, soldIds, session);
       const soldById = new Map(soldProducts.map((p) => [p._id, p]));
 
       // Consumo físico real a reponer (insumos para platos, el producto para simples).
@@ -168,19 +158,14 @@ class SalesService extends InventoryDocumentService {
       }
 
       for (const [productId, qty] of restock) {
-        await Product.updateOne(
-          { _id: productId, userId },
-          { $inc: { stock: qty } },
-          { session },
-        );
+        await productsService.restoreStock(userId, productId, qty, session);
       }
 
       // Movimiento de reversa (entrada) con el consumo físico real (insumos expandidos).
       const ingredientById = new Map(soldProducts.map((p) => [p._id, p]));
       const missingIds = [...restock.keys()].filter((pid) => !ingredientById.has(pid));
       if (missingIds.length) {
-        const extra = await Product.find({ userId, _id: { $in: missingIds } })
-          .select('_id purchasePrice').session(session).lean();
+        const extra = await productsService.findSaleReversalDetails(userId, missingIds, session);
         for (const p of extra) ingredientById.set(p._id, p);
       }
       // Movimiento de reversa solo si hubo stock que reponer. Una venta de solo
@@ -188,7 +173,7 @@ class SalesService extends InventoryDocumentService {
       let voidMovementId = null;
       if (restock.size > 0) {
         voidMovementId = UniqueNumberUtil.generateRaw();
-        await Movement.create([{
+        await movementsService.recordDocumentMovement({
           _id: voidMovementId,
           userId,
           date: new Date(),
@@ -206,133 +191,160 @@ class SalesService extends InventoryDocumentService {
           })),
           createdBy: userId,
           updatedBy: userId,
-        }], { session });
+        }, session);
       }
 
       // Marcar la venta como anulada, guardando el motivo de cancelación.
-      await Sale.updateOne(
-        { _id: id, userId },
-        {
+      await this.repository.updateOwnedInSession(
+        id,
+        userId,
+        { $set: {
           status: DOCUMENT_STATUS.VOID,
+          orderStatus: ORDER_STATUS.CANCELLED,
           voidReason: reasonCode,
           voidNote,
           voidedAt: new Date(),
           updatedBy: userId,
-        },
-        { session },
+        } },
+        session,
       );
+
+      await deliveriesService.cancelBySale(id, userId, session);
 
       // Revertir métricas de fidelización solo si la venta llegó a cobrarse
       // (una venta "por cobrar" nunca sumó al cliente).
-      const customer = sale.paymentStatus === PAYMENT_STATUS.PAID
-        ? await Customer.findOne({
-          _id: sale.customerId,
-          userId,
-          recordStatus: RECORD_STATUS.ACTIVE,
-        }).session(session).lean()
-        : null;
-      if (customer) {
-        const newSpent = Math.max(0, this.#round(previousSpentOf(customer) - sale.total));
-        const newCount = Math.max(0, (customer.stats?.purchaseCount ?? 0) - 1);
-        await Customer.updateOne(
-          { _id: customer._id, userId },
-          {
-            $set: {
-              'stats.totalSpent': newSpent,
-              'stats.purchaseCount': newCount,
-              loyaltyTier: resolveLoyaltyTier(newSpent, newCount),
-              updatedBy: userId,
-            },
-          },
-          { session },
-        );
+      if (sale.paymentStatus === PAYMENT_STATUS.PAID) {
+        await customersService.reverseSale(sale.customerId, sale.total, userId, session);
       }
 
       return { id, status: DOCUMENT_STATUS.VOID, voidMovementId };
     });
   }
 
-  #round(value) {
+  hasCustomerSales(userId, customerId) {
+    return this.repository.hasCustomerSales(userId, customerId);
+  }
+
+  async listCustomerHistory(userId, customerId, { page, limit }) {
+    const { sales, total } = await this.repository.listCustomerHistory({
+      userId,
+      customerId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      status: { $ne: DOCUMENT_STATUS.VOID },
+    }, { page, limit });
+
+    return {
+      sales: sales.map(({ _id, ...sale }) => ({ id: _id, ...sale })),
+      total,
+    };
+  }
+
+  customerAnalytics(userId, customerId) {
+    return this.repository.customerAnalytics(userId, customerId);
+  }
+
+  activeKitchenOrderCountsByTable(userId) {
+    return this.repository.activeKitchenOrderCountsByTable(userId);
+  }
+
+  async dashboardEmployeeSales(userId, since) {
+    const rows = await this.repository.dashboardEmployeeSales(userId, since);
+    return rows.map((row) => ({
+      employeeId: row.employeeId,
+      employeeName: row.employeeName || `Empleado #${row.employeeId}`,
+      salesCount: row.salesCount,
+      revenue: this.#roundMoney(row.revenue),
+    }));
+  }
+
+  async reportSales(userId, range, groupBy, employeeId = null) {
+    const match = {
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      status: { $ne: DOCUMENT_STATUS.VOID },
+      paymentStatus: PAYMENT_STATUS.PAID,
+      date: { $gte: range.from, $lt: range.toExclusive },
+    };
+    if (employeeId !== null) match.employeeId = employeeId;
+
+    const result = await this.repository.reportSales(match, groupBy);
+    return {
+      groupBy,
+      employeeId: match.employeeId ?? null,
+      totals: result[0]?.totals[0] || { salesCount: 0, unitsSold: 0, revenue: 0, grossProfit: 0 },
+      periods: result[0]?.periods || [],
+    };
+  }
+
+  async reportSalesByEmployee(userId, range) {
+    const rows = await this.repository.reportSalesByEmployee({
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      status: { $ne: DOCUMENT_STATUS.VOID },
+      paymentStatus: PAYMENT_STATUS.PAID,
+      date: { $gte: range.from, $lt: range.toExclusive },
+    });
+    const employees = rows.map((row) => ({
+      employeeId: row.employeeId ?? null,
+      employeeName: row.employeeName || (row.employeeId ? `Empleado #${row.employeeId}` : 'Sin asignar'),
+      salesCount: row.salesCount,
+      unitsSold: row.unitsSold,
+      revenue: this.#roundMoney(row.revenue),
+      grossProfit: this.#roundMoney(row.grossProfit),
+    }));
+
+    return {
+      generatedAt: new Date(),
+      totals: {
+        employeeCount: employees.filter((employee) => employee.employeeId != null).length,
+        salesCount: employees.reduce((sum, employee) => sum + employee.salesCount, 0),
+        unitsSold: employees.reduce((sum, employee) => sum + employee.unitsSold, 0),
+        revenue: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.revenue, 0)),
+        grossProfit: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.grossProfit, 0)),
+      },
+      employees,
+    };
+  }
+
+  #roundMoney(value) {
     return Math.round((value + Number.EPSILON) * 100) / 100;
   }
 
-  /**
-   * Cola de cocina: comandas activas (no servidas) ordenadas por antigüedad.
-   * Por defecto excluye las ya servidas; `includeServed` las incluye.
-   */
-  async kitchenQueue(userId, query = {}) {
-    const filter = {
-      userId,
-      recordStatus: RECORD_STATUS.ACTIVE,
-      kitchenStatus: { $ne: null },
-      status: { $ne: DOCUMENT_STATUS.VOID }, // las comandas canceladas salen de la cola
-    };
-    if (!query.includeServed) {
-      filter.kitchenStatus = { $in: [KITCHEN_STATUS.PENDING, KITCHEN_STATUS.PREPARING, KITCHEN_STATUS.READY] };
-    }
-    const sales = await Sale.find(filter)
-      .select('_id date tableNumber kitchenStatus kitchenTimeline paymentStatus paidAt items total customerSnapshot employeeSnapshot notes')
-      .sort({ date: 1 })
-      .limit(200)
-      .lean();
-    return sales.map(({ _id, ...rest }) => ({ id: _id, ...rest }));
+  /** Lista comandas activas del agregado de ventas. */
+  listKitchenOrders(userId, { includeServed = false } = {}) {
+    return this.repository.listKitchenOrders(userId, includeServed);
   }
 
-  /**
-   * Cambia el estado de cocina de una comanda validando transiciones y sellando
-   * los hitos de tiempo. Solo aplica a ventas que entraron a cocina.
-   */
-  async changeKitchenStatus(saleId, nextStatus, userId) {
+  async getKitchenSale(saleId, userId) {
     const id = positiveInteger(saleId, 'saleId');
-    if (!KITCHEN_STATUSES.includes(nextStatus)) {
-      throw HttpError.badRequest(`kitchenStatus must be one of: ${KITCHEN_STATUSES.join(', ')}`);
-    }
-    const sale = await Sale.findOne({ _id: id, userId, recordStatus: RECORD_STATUS.ACTIVE }).lean();
+    const sale = await this.repository.findKitchenSale(id, userId);
     if (!sale) throw HttpError.notFound('Sale not found');
-    if (sale.kitchenStatus == null) throw HttpError.badRequest('This sale is not a kitchen order');
-
-    const allowed = KITCHEN_TRANSITIONS[sale.kitchenStatus] ?? [];
-    if (!allowed.includes(nextStatus)) {
-      throw HttpError.conflict(`Cannot change kitchen status from ${sale.kitchenStatus} to ${nextStatus}`);
-    }
-
-    const update = { kitchenStatus: nextStatus };
-    const now = new Date();
-    if (nextStatus === KITCHEN_STATUS.PREPARING) update['kitchenTimeline.startedAt'] = now;
-    if (nextStatus === KITCHEN_STATUS.READY) update['kitchenTimeline.readyAt'] = now;
-    if (nextStatus === KITCHEN_STATUS.SERVED) update['kitchenTimeline.servedAt'] = now;
-
-    await Sale.updateOne({ _id: id, userId }, { $set: { ...update, updatedBy: userId } });
-
-    // Sincronizar el domicilio asociado (si existe): el pedido es una sola línea
-    // de estados. La cocina dicta pending/preparing/ready; de ahí en adelante el
-    // reparto lo maneja el domiciliario. No se toca si ya pasó a reparto
-    // (picked_up/on_route) ni si terminó (delivered/cancelled). 'served' no mapea.
-    await this.#syncDeliveryFromKitchen(id, nextStatus, userId);
-
-    return { id, kitchenStatus: nextStatus };
+    return sale;
   }
 
-  /**
-   * Propaga el estado de cocina al domicilio asociado, solo mientras el pedido
-   * sigue en fase de cocina. No bloquea el flujo si no hay domicilio o si ya
-   * está en manos del domiciliario.
-   */
-  async #syncDeliveryFromKitchen(saleId, kitchenStatus, userId) {
-    const target = KITCHEN_TO_DELIVERY_STATUS[kitchenStatus];
-    if (!target) return; // 'served' u otro: el domicilio no se ve afectado.
+  async setKitchenState(saleId, userId, currentStatus, status, timeline) {
+    const id = positiveInteger(saleId, 'saleId');
+    return this.repository.withTransaction(async (session) => {
+      const updated = await this.repository.setKitchenState(id, userId, currentStatus, status, timeline, session);
+      if (!updated) {
+        const current = await this.repository.findKitchenSale(id, userId);
+        if (!current) throw HttpError.notFound('Sale not found');
+        throw HttpError.conflict('Kitchen order status changed; refresh and try again');
+      }
+      await deliveriesService.syncFromKitchen(id, userId, status, session);
+      return { id, kitchenStatus: status, orderStatus: status };
+    });
+  }
 
-    const delivery = await Delivery.findOne({ saleId, userId, recordStatus: RECORD_STATUS.ACTIVE })
-      .select('_id status').lean();
-    if (!delivery) return; // venta de mesa/para llevar: no hay domicilio.
-
-    // Solo mover si el domicilio sigue en fase de cocina (no lo recogió aún el
-    // domiciliario ni terminó). Evita pisar el trabajo del repartidor.
-    const kitchenPhase = [DELIVERY_STATUS.PENDING, DELIVERY_STATUS.PREPARING, DELIVERY_STATUS.READY];
-    if (!kitchenPhase.includes(delivery.status) || delivery.status === target) return;
-
-    const update = { status: target, updatedBy: userId };
-    await Delivery.updateOne({ _id: delivery._id, userId }, { $set: update });
+  async setOrderStatusFromDelivery(saleId, userId, status, session) {
+    const result = await this.repository.setOrderStatusInSession(
+      positiveInteger(saleId, 'saleId'),
+      userId,
+      status,
+      session,
+    );
+    if (result.matchedCount !== 1) throw HttpError.conflict('The sale linked to this delivery no longer exists');
+    return result;
   }
 
   /**
@@ -344,11 +356,7 @@ class SalesService extends InventoryDocumentService {
     const id = positiveInteger(saleId, 'saleId');
 
     return this.repository.withTransaction(async (session) => {
-      const sale = await Sale.findOne({
-        _id: id,
-        userId,
-        recordStatus: RECORD_STATUS.ACTIVE,
-      }).session(session).lean();
+      const sale = await this.repository.findOwnedInSession(id, userId, session);
       if (!sale) throw HttpError.notFound('Sale not found');
       if (sale.status === DOCUMENT_STATUS.VOID) throw HttpError.conflict('Sale is void');
       if (sale.paymentStatus === PAYMENT_STATUS.PAID) {
@@ -356,45 +364,22 @@ class SalesService extends InventoryDocumentService {
       }
 
       const now = new Date();
-      await Sale.updateOne(
-        { _id: id, userId },
+      await this.repository.updateOwnedInSession(
+        id,
+        userId,
         { $set: { paymentStatus: PAYMENT_STATUS.PAID, paidAt: now, updatedBy: userId } },
-        { session },
+        session,
       );
 
       // Al concretar el cobro, sumar las métricas de fidelización del cliente.
-      const customer = await Customer.findOne({
-        _id: sale.customerId,
-        userId,
-        recordStatus: RECORD_STATUS.ACTIVE,
-      }).session(session).lean();
+      const customer = await customersService.getActiveForDocument(sale.customerId, userId, session);
       if (customer) {
-        const newSpent = this.#round((customer.stats?.totalSpent ?? 0) + sale.total);
-        const newCount = (customer.stats?.purchaseCount ?? 0) + 1;
-        const firstPurchaseAt = customer.stats?.firstPurchaseAt ?? now;
-        await Customer.updateOne(
-          { _id: customer._id, userId },
-          {
-            $set: {
-              'stats.totalSpent': newSpent,
-              'stats.purchaseCount': newCount,
-              'stats.firstPurchaseAt': firstPurchaseAt,
-              'stats.lastPurchaseAt': now,
-              loyaltyTier: resolveLoyaltyTier(newSpent, newCount),
-              updatedBy: userId,
-            },
-          },
-          { session },
-        );
+        await customersService.recordSale(customer, sale.total, now, userId, session);
       }
 
       return { id, paymentStatus: PAYMENT_STATUS.PAID, paidAt: now };
     });
   }
-}
-
-function previousSpentOf(customer) {
-  return customer.stats?.totalSpent ?? 0;
 }
 
 module.exports = { salesService: new SalesService() };

@@ -1,12 +1,14 @@
 'use strict';
 
 const { mongoose, applyPlatformSchema, RECORD_STATUS } = require('nemkit');
+const { ACCOUNT_TYPES } = require('./users.constants');
 
 const UserSchema = applyPlatformSchema({
   fullName:     { type: String, required: true, trim: true },
   email:        { type: String, required: true, trim: true, lowercase: true },
   passwordHash: { type: String, required: true, select: false },
   roles:        [{ type: String, enum: ['SUPERADMIN', 'ADMIN', 'USER', 'CASHIER', 'SELLER', 'COURIER', 'WAREHOUSE', 'WAITER', 'COOK'], default: 'USER' }],
+  accountType:  { type: String, enum: ACCOUNT_TYPES, default: null, index: true },
   // Nombre de la empresa (solo lo diligencia el dueño de la cuenta).
   companyName:  { type: String, trim: true, default: '', maxlength: 160 },
   // Tipo de negocio del dueño: activa funciones específicas (p. ej. cocina).
@@ -38,5 +40,6 @@ UserSchema.index(
     },
   },
 );
+UserSchema.index({ recordStatus: 1, _id: 1 });
 
 module.exports = mongoose.model('users', UserSchema);

@@ -21,8 +21,8 @@ class TokensRepository extends MongoRepository {
     return result.deletedCount > 0;
   }
 
-  async deleteAllByUser(userId) {
-    const result = await this.model.deleteMany({ userId });
+  async deleteAllByUser(userId, session = null) {
+    const result = await this.model.deleteMany({ userId }, session ? { session } : {});
     return { deletedCount: result.deletedCount };
   }
 }

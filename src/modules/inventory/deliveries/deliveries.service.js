@@ -2,12 +2,9 @@
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
 const { DeliveriesRepository } = require('./deliveries.repository');
-const Employee = require('../employees/employees.model');
-const { salesService } = require('../sales/sales.service');
+const { employeesService } = require('../employees/employees.service');
 const { pagination, positiveInteger } = require('../validation');
 const {
-  EMPLOYEE_ROLE,
-  EMPLOYEE_STATUS,
   DELIVERY_STATUS,
   DELIVERY_STATUSES,
   DELIVERY_TRANSITIONS,
@@ -17,6 +14,21 @@ class DeliveriesService extends BaseService {
   constructor() {
     super(new DeliveriesRepository());
     this.notFoundMessage = 'Delivery not found';
+    this.salesOperations = null;
+  }
+
+  setSalesOperations({ voidSale, setOrderStatusFromDelivery }) {
+    if (typeof voidSale !== 'function' || typeof setOrderStatusFromDelivery !== 'function') {
+      throw new TypeError('Delivery sales operations must provide voidSale and setOrderStatusFromDelivery');
+    }
+    this.salesOperations = { voidSale, setOrderStatusFromDelivery };
+  }
+
+  #getSalesOperations() {
+    if (!this.salesOperations) {
+      throw new Error('Delivery sales operations have not been configured');
+    }
+    return this.salesOperations;
   }
 
   /**
@@ -93,6 +105,12 @@ class DeliveriesService extends BaseService {
       }
       throw HttpError.conflict(`Cannot change status from ${delivery.status} to ${nextStatus}`);
     }
+
+    if (nextStatus === DELIVERY_STATUS.CANCELLED && delivery.saleId != null) {
+      const { voidSale } = this.#getSalesOperations();
+      await voidSale(delivery.saleId, userId);
+      return this.getOwned(id, userId, ctx);
+    }
     // Recoger o salir a ruta requiere un domiciliario asignado.
     if ((nextStatus === DELIVERY_STATUS.PICKED_UP || nextStatus === DELIVERY_STATUS.ON_ROUTE)
       && delivery.courierId == null) {
@@ -106,9 +124,51 @@ class DeliveriesService extends BaseService {
     if (nextStatus === DELIVERY_STATUS.DELIVERED) update['timeline.deliveredAt'] = now;
     if (nextStatus === DELIVERY_STATUS.CANCELLED) update['timeline.cancelledAt'] = now;
 
-    // La venta ya existe (el domicilio nace de una venta). Entregar solo marca
-    // el hito; el stock y el ingreso se registraron al crear la venta.
-    return this.updateById(id, update, userId);
+    return this.repository.withTransaction(async (session) => {
+      const updatedDelivery = await this.repository.changeStatusInSession(
+        id,
+        userId,
+        delivery.status,
+        update,
+        session,
+      );
+      if (!updatedDelivery) throw HttpError.conflict('Delivery status changed; refresh and try again');
+      if (delivery.saleId != null) {
+        const { setOrderStatusFromDelivery } = this.#getSalesOperations();
+        await setOrderStatusFromDelivery(delivery.saleId, userId, nextStatus, session);
+      }
+      return updatedDelivery;
+    });
+  }
+
+  syncFromKitchen(saleId, userId, kitchenStatus, session) {
+    return this.repository.syncFromKitchen(saleId, userId, kitchenStatus, session);
+  }
+
+  cancelBySale(saleId, userId, session) {
+    return this.repository.cancelBySale(saleId, userId, session);
+  }
+
+  existsForSale(saleId, userId) {
+    return this.repository.existsForSale(saleId, userId);
+  }
+
+  createFromSale(data, session) {
+    return this.repository.createFromSale(data, session);
+  }
+
+  async dashboardMetrics(userId) {
+    const { byStatus, averageMinutes } = await this.repository.dashboardMetrics(userId);
+    const counts = Object.fromEntries(byStatus.map((row) => [row._id, row.count]));
+
+    return {
+      pending: counts[DELIVERY_STATUS.PENDING] || 0,
+      preparing: counts[DELIVERY_STATUS.PREPARING] || 0,
+      onRoute: counts[DELIVERY_STATUS.ON_ROUTE] || 0,
+      delivered: counts[DELIVERY_STATUS.DELIVERED] || 0,
+      cancelled: counts[DELIVERY_STATUS.CANCELLED] || 0,
+      avgDeliveryMinutes: averageMinutes != null ? Math.round(averageMinutes) : null,
+    };
   }
 
   /**
@@ -122,7 +182,9 @@ class DeliveriesService extends BaseService {
       throw HttpError.conflict('Only a delivered order can be voided');
     }
     if (delivery.saleId != null) {
-      await salesService.voidSale(delivery.saleId, userId, { reason });
+      const { voidSale } = this.#getSalesOperations();
+      await voidSale(delivery.saleId, userId, { reason });
+      return this.getOwned(id, userId, { restrictToCourierId });
     }
     return this.updateById(id, {
       status: DELIVERY_STATUS.CANCELLED,
@@ -144,16 +206,7 @@ class DeliveriesService extends BaseService {
       if (required) throw HttpError.badRequest('courierId is required');
       return { courierId: null, courierSnapshot: { name: '' } };
     }
-    const id = positiveInteger(courierId, 'courierId');
-    const employee = await Employee.findOne({
-      _id: id,
-      userId,
-      role: EMPLOYEE_ROLE.COURIER,
-      status: EMPLOYEE_STATUS.ACTIVE,
-      recordStatus: RECORD_STATUS.ACTIVE,
-    }).select('_id name').lean();
-    if (!employee) throw HttpError.badRequest('Invalid or inactive courier (must be an active employee with courier role)');
-    return { courierId: employee._id, courierSnapshot: { name: employee.name } };
+    return employeesService.getActiveCourierSnapshot(userId, courierId);
   }
 
   #validateProof(proof) {

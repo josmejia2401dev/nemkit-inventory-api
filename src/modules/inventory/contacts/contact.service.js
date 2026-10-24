@@ -4,10 +4,9 @@ const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
 const { pagination, positiveInteger, escapeRegex, assertNoEmptyUpdate } = require('../validation');
 
 class ContactService extends BaseService {
-  constructor(repository, linkedModel, linkedField, label) {
+  constructor(repository, hasLinkedRecords, label) {
     super(repository);
-    this.linkedModel = linkedModel;
-    this.linkedField = linkedField;
+    this.hasLinkedRecords = hasLinkedRecords;
     this.label = label;
   }
 
@@ -68,10 +67,7 @@ class ContactService extends BaseService {
   async remove(id, userId) {
     const contactId = positiveInteger(id, `${this.label}Id`);
     await this.getOwned(contactId, userId);
-    const linked = await this.linkedModel.exists({
-      userId,
-      [this.linkedField]: contactId,
-    });
+    const linked = await this.hasLinkedRecords(userId, contactId);
     if (linked) {
       throw HttpError.conflict(`${this.label} has linked documents and cannot be deleted`);
     }

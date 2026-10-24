@@ -4,6 +4,7 @@ const { hashPassword, UniqueNumberUtil } = require('nemkit');
 const User = require('../modules/foundation/users/users.model');
 const logger = require('../config/logger');
 const { env } = require('../config/env');
+const { ACCOUNT_TYPE } = require('../modules/foundation/users/users.constants');
 
 /**
  * Seed del super administrador de plataforma al arranque.
@@ -22,6 +23,26 @@ async function seedAdminUser() {
   const fullName = env.ADMIN_FULLNAME;
 
   const count = await User.countDocuments();
+
+  const legacyPlatformUsers = await User.find({ roles: 'SUPERADMIN', accountType: null })
+    .select('_id tenantId employeeId companyName roles')
+    .lean();
+  for (const user of legacyPlatformUsers) {
+    const isCompanyOwner = user.employeeId == null
+      && user.tenantId === user._id
+      && ((user.roles ?? []).includes('ADMIN') || Boolean(user.companyName));
+    await User.updateOne({ _id: user._id, accountType: null }, {
+      $set: { accountType: isCompanyOwner ? ACCOUNT_TYPE.COMPANY_OWNER : ACCOUNT_TYPE.SUPERADMIN },
+    });
+  }
+  await User.updateMany(
+    { roles: { $nin: ['SUPERADMIN'] }, employeeId: { $ne: null }, accountType: null },
+    { $set: { accountType: ACCOUNT_TYPE.EMPLOYEE } },
+  );
+  await User.updateMany(
+    { roles: { $nin: ['SUPERADMIN'] }, employeeId: null, accountType: null, recordStatus: { $ne: 'deleted' } },
+    { $set: { accountType: ACCOUNT_TYPE.COMPANY_OWNER } },
+  );
 
   // Caso 1: BD vacía → crear el super admin inicial.
   if (count === 0) {
@@ -43,6 +64,7 @@ async function seedAdminUser() {
       email,
       passwordHash,
       roles: ['SUPERADMIN'],
+      accountType: ACCOUNT_TYPE.SUPERADMIN,
       security: { mustChangePassword: true },
       recordStatus: 'active',
       createdBy: null,
@@ -57,7 +79,17 @@ async function seedAdminUser() {
   const existing = await User.findOne({ email, recordStatus: { $ne: 'deleted' } }).lean();
   if (existing && !(existing.roles ?? []).includes('SUPERADMIN')) {
     const roles = [...new Set([...(existing.roles ?? []), 'SUPERADMIN'])];
-    await User.updateOne({ _id: existing._id }, { roles, updatedBy: existing._id });
+    const accountType = existing.accountType
+      ?? (existing.employeeId != null
+        ? ACCOUNT_TYPE.EMPLOYEE
+        : existing.tenantId === existing._id
+          ? ACCOUNT_TYPE.COMPANY_OWNER
+          : ACCOUNT_TYPE.SUPERADMIN);
+    await User.updateOne({ _id: existing._id }, {
+      roles,
+      accountType,
+      updatedBy: existing._id,
+    });
     logger.info(`Promoted ${email} to SUPERADMIN.`);
   }
 }

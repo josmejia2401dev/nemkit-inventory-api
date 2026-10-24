@@ -1,15 +1,15 @@
 'use strict';
 
-const Purchase = require('./purchases.model');
-const Supplier = require('../suppliers/suppliers.model');
+const { PurchasesRepository } = require('./purchases.repository');
 const { InventoryDocumentService } = require('../documents/document.service');
+const { suppliersService } = require('../suppliers/suppliers.service');
 const { MOVEMENT_TYPE, MOVEMENT_DIRECTION } = require('../inventory.constants');
 
 class PurchasesService extends InventoryDocumentService {
   constructor() {
     super({
-      model: Purchase,
-      contactModel: Supplier,
+      repository: new PurchasesRepository(),
+      contactService: suppliersService,
       contactField: 'supplierId',
       movementType: MOVEMENT_TYPE.PURCHASE,
       direction: MOVEMENT_DIRECTION.IN,
@@ -17,6 +17,10 @@ class PurchasesService extends InventoryDocumentService {
       label: 'Purchase',
       requiredContact: true,
     });
+  }
+
+  hasSupplierPurchases(userId, supplierId) {
+    return this.repository.hasSupplierPurchases(userId, supplierId);
   }
 }
 

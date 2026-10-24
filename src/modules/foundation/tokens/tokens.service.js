@@ -40,7 +40,15 @@ class TokensService {
     return { oldSession: existing, newSession };
   }
 
-  async revokeAllSessions(userId) { return this.repository.deleteAllByUser(userId); }
+  async revokeAllSessions(userId, session = null) {
+    return this.repository.deleteAllByUser(userId, session);
+  }
+
+  async isSessionRevoked(id) {
+    const sessionId = Number(id);
+    if (!Number.isSafeInteger(sessionId) || sessionId < 1) return true;
+    return !(await this.validateSession(sessionId));
+  }
   async revokeByAudience(userId, audience) { return this.repository.deleteByUserAndAudience(userId, audience); }
 
   blacklistJti(jti, ttlMs) { jtiBlacklist.set(String(jti), true, { ttlMs }); }
