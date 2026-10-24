@@ -40,6 +40,8 @@ const SaleSchema = applyPlatformSchema({
   voidReason: { type: String, default: '' },
   voidNote: { type: String, trim: true, default: '', maxlength: 300 },
   voidedAt: { type: Date, default: null },
+  voidedBy: { type: Number, min: 1, default: null },
+  voidedBySnapshot: { name: { type: String, default: '' } },
   // Estado de cobro: paid (tienda al instante; restaurante tras cobrar) o pending.
   paymentStatus: { type: String, enum: ['paid', 'pending'], default: 'paid', index: true },
   paidAt: { type: Date, default: null },
@@ -51,6 +53,7 @@ const SaleSchema = applyPlatformSchema({
 SaleSchema.index({ userId: 1, date: -1 });
 SaleSchema.index({ userId: 1, customerId: 1, date: -1 });
 SaleSchema.index({ userId: 1, employeeId: 1, date: -1 });
+SaleSchema.index({ userId: 1, status: 1, voidedAt: -1 });
 // Cola de cocina: comandas activas ordenadas por fecha.
 SaleSchema.index({ userId: 1, kitchenStatus: 1, date: 1 });
 SaleSchema.index({ userId: 1, orderStatus: 1, date: 1 });

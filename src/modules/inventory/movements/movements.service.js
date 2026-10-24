@@ -95,7 +95,9 @@ class MovementsService extends BaseService {
   async report(userId, { from, toExclusive, type, productId, page, limit }) {
     const filter = {
       userId,
-      recordStatus: RECORD_STATUS.ACTIVE,
+      // Match the main movements listing: hide only deleted ledger entries.
+      // Older movement documents may not have recordStatus set explicitly.
+      recordStatus: { $ne: RECORD_STATUS.DELETED },
       date: { $gte: from, $lt: toExclusive },
     };
     if (type !== undefined) filter.type = type;

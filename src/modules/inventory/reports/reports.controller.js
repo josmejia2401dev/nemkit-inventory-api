@@ -39,6 +39,15 @@ class ReportsController {
       next(error);
     }
   }
+
+  async cancelledSales(req, res, next) {
+    try {
+      const report = await reportsService.cancelledSales(req.user.id, req.query);
+      return success(res, report);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = { reportsController: new ReportsController() };

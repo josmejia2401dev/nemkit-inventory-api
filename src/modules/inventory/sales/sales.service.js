@@ -126,7 +126,7 @@ class SalesService extends InventoryDocumentService {
    * @param {string} [options.reason]     - código de motivo (CANCEL_REASON)
    * @param {string} [options.note]       - nota libre opcional (p. ej. para 'other')
    */
-  async voidSale(saleId, userId, { reason = '', note = '' } = {}) {
+  async voidSale(saleId, userId, { reason = '', note = '', actorId = null, actorName = '' } = {}) {
     const id = positiveInteger(saleId, 'saleId');
     const reasonCode = CANCEL_REASONS.includes(reason) ? reason : '';
     const voidNote = typeof note === 'string' ? note.trim().slice(0, 300) : '';
@@ -204,6 +204,8 @@ class SalesService extends InventoryDocumentService {
           voidReason: reasonCode,
           voidNote,
           voidedAt: new Date(),
+          voidedBy: actorId,
+          voidedBySnapshot: { name: typeof actorName === 'string' ? actorName.trim().slice(0, 160) : '' },
           updatedBy: userId,
         } },
         session,
@@ -303,6 +305,25 @@ class SalesService extends InventoryDocumentService {
         grossProfit: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.grossProfit, 0)),
       },
       employees,
+    };
+  }
+
+  async reportCancelledSales(userId, range, { page = 1, limit = 10 } = {}) {
+    const result = await this.repository.reportCancelledSales({
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      status: DOCUMENT_STATUS.VOID,
+      voidedAt: { $gte: range.from, $lt: range.toExclusive },
+    }, { page, limit });
+
+    return {
+      generatedAt: new Date(),
+      totals: {
+        cancellationCount: result.totals?.cancellationCount ?? 0,
+        cancelledValue: this.#roundMoney(result.totals?.cancelledValue ?? 0),
+      },
+      cancellations: result.cancellations.map(({ _id, ...sale }) => ({ id: _id, ...sale })),
+      pagination: { page, limit, total: result.total, totalPages: Math.ceil(result.total / limit) },
     };
   }
 

@@ -86,7 +86,6 @@ class ProductsRepository extends MongoRepository {
     return this._applyTimeout(this.model.find({
       userId,
       recordStatus: RECORD_STATUS.ACTIVE,
-      type: { $ne: PRODUCT_TYPE.PREPARED },
     }).select('_id sku name categoryId purchasePrice salePrice stock minimumStock status')
       .sort({ name: 1 })
       .lean());

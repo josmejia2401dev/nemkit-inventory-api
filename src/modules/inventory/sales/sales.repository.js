@@ -335,6 +335,44 @@ class SalesRepository extends InventoryDocumentRepository {
       { $project: { _id: 0, employeeId: '$_id', employeeName: 1, salesCount: 1, unitsSold: 1, revenue: 1, grossProfit: 1 } },
     ]), this.queryTimeoutMs);
   }
+
+  async reportCancelledSales(match, { page, limit }) {
+    const [result] = await applyMongoTimeout(this.model.aggregate([
+      { $match: match },
+      {
+        $facet: {
+          cancellations: [
+            { $sort: { voidedAt: -1, _id: -1 } },
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            { $project: {
+              _id: 1,
+              date: '$voidedAt',
+              saleDate: '$date',
+              total: 1,
+              customerSnapshot: 1,
+              employeeSnapshot: 1,
+              voidedBy: 1,
+              voidedBySnapshot: 1,
+              voidReason: 1,
+              voidNote: 1,
+            } },
+          ],
+          totals: [
+            { $group: { _id: null, cancellationCount: { $sum: 1 }, cancelledValue: { $sum: '$total' } } },
+            { $project: { _id: 0, cancellationCount: 1, cancelledValue: 1 } },
+          ],
+          count: [{ $count: 'total' }],
+        },
+      },
+    ]), this.queryTimeoutMs);
+
+    return {
+      cancellations: result?.cancellations ?? [],
+      totals: result?.totals?.[0] ?? { cancellationCount: 0, cancelledValue: 0 },
+      total: result?.count?.[0]?.total ?? 0,
+    };
+  }
 }
 
 module.exports = { SalesRepository };

@@ -58,6 +58,8 @@ class SalesController extends InventoryDocumentController {
       const result = await this.service.voidSale(req.params.id, req.user.id, {
         reason: sanitized.reason,
         note: sanitized.note ?? '',
+        actorId: req.user.userId ?? req.user.id,
+        actorName: req.user.fullName ?? '',
       });
       return success(res, result, 'Pedido cancelado');
     } catch (error) {

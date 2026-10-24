@@ -90,6 +90,12 @@ class ReportsService {
     const range = dateRange(query);
     return salesService.reportSalesByEmployee(userId, range);
   }
+
+  async cancelledSales(userId, query = {}) {
+    const range = dateRange(query);
+    const { page, limit } = pageOptions(query);
+    return salesService.reportCancelledSales(userId, range, { page, limit });
+  }
 }
 
 module.exports = { ReportsService, reportsService: new ReportsService() };
