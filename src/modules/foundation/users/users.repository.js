@@ -188,19 +188,6 @@ class UsersRepository extends MongoRepository {
     return applyMongoTimeout(aggregation, this.queryTimeoutMs);
   }
 
-  async listActiveNotificationRecipientsAfter(id, limit = 500) {
-    const users = await this._applyTimeout(this.model.find({
-      ...this._baseFilter(),
-      _id: { $gt: id },
-      recordStatus: RECORD_STATUS.ACTIVE,
-      roles: { $nin: ['SUPERADMIN'] },
-    })
-      .select('_id tenantId')
-      .sort({ _id: 1 })
-      .limit(limit)
-      .lean());
-    return users.map((user) => ({ id: user._id, tenantId: user.tenantId ?? user._id }));
-  }
 }
 
 module.exports = { UsersRepository };

@@ -137,9 +137,6 @@ class UsersService extends BaseService {
   countByTenant(tenantId) { return this.repository.countByTenant(tenantId); }
   countByTenants(tenantIds) { return this.repository.countByTenants(tenantIds); }
   findByIds(ids) { return this.repository.findByIds(ids); }
-  listActiveNotificationRecipientsAfter(id, limit) {
-    return this.repository.listActiveNotificationRecipientsAfter(id, limit);
-  }
 
   async changePassword(userId, newPlainPassword) {
     const passwordHash = await hashPassword(newPlainPassword);
