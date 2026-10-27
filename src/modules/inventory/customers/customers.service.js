@@ -1,7 +1,7 @@
 'use strict';
 
 const { HttpError, RECORD_STATUS } = require('nemkit');
-const { ContactService } = require('../contacts/contact.service');
+const { ContactService } = require('../contacts/contacts.service');
 const { CustomersRepository } = require('./customers.repository');
 const { pagination, positiveInteger, escapeRegex } = require('../validation');
 const { resolveLoyaltyTier } = require('../inventory.constants');

@@ -1,16 +1,9 @@
 'use strict';
 
-const { success, paginated, createValidator, HttpError } = require('nemkit');
+const { success, paginated, HttpError } = require('nemkit');
 const { deliveriesService: service } = require('./deliveries.service');
-const { DELIVERY_STATUSES, DELIVERY_STATUS } = require('../inventory.constants');
-
-const statusSchema = createValidator({
-  status: { type: 'string', required: true, enum: DELIVERY_STATUSES },
-});
-
-const courierSchema = createValidator({
-  courierId: { type: 'number', required: true, min: 1 },
-});
+const { DELIVERY_STATUS } = require('../inventory.constants');
+const { statusSchema, courierSchema } = require('./deliveries.validator');
 
 /**
  * Si el usuario es domiciliario (COURIER sin ser ADMIN), devuelve el

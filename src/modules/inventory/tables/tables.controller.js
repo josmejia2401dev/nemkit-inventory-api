@@ -1,14 +1,8 @@
 'use strict';
 
-const { success, created, paginated, createValidator } = require('nemkit');
+const { success, created, paginated } = require('nemkit');
 const { tablesService: service } = require('./tables.service');
-
-const fields = {
-  name: { type: 'string', trim: true, minLength: 1, maxLength: 40 },
-  description: { type: 'string', trim: true, maxLength: 200 },
-};
-const createSchema = createValidator({ ...fields, name: { ...fields.name, required: true } });
-const updateSchema = createValidator(fields);
+const { createTableSchema: createSchema, updateTableSchema: updateSchema } = require('./tables.validator');
 
 class TablesController {
   async list(req, res, next) {

@@ -1,21 +1,8 @@
 'use strict';
 
-const { success, created, paginated, createValidator } = require('nemkit');
+const { success, created, paginated } = require('nemkit');
 const { customersService: service } = require('./customers.service');
-
-const fields = {
-  name: { type: 'string', trim: true, minLength: 2, maxLength: 160 },
-  document: { type: 'string', trim: true, maxLength: 40 },
-  phone: { type: 'string', trim: true, maxLength: 40 },
-  email: { type: 'string', trim: true, maxLength: 254 },
-  address: { type: 'string', trim: true, maxLength: 300 },
-  birthDate: { type: 'date' },
-};
-const createSchema = createValidator({
-  ...fields,
-  name: { ...fields.name, required: true },
-});
-const updateSchema = createValidator(fields);
+const { createCustomerSchema: createSchema, updateCustomerSchema: updateSchema } = require('./customers.validator');
 
 class CustomersController {
   async list(req, res, next) {

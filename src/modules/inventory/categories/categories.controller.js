@@ -1,17 +1,8 @@
 'use strict';
 
-const { success, created, paginated, createValidator } = require('nemkit');
+const { success, created, paginated } = require('nemkit');
 const { categoriesService: service } = require('./categories.service');
-
-const createSchema = createValidator({
-  name: { type: 'string', required: true, trim: true, minLength: 2, maxLength: 100 },
-  description: { type: 'string', trim: true, maxLength: 500 },
-});
-
-const updateSchema = createValidator({
-  name: { type: 'string', trim: true, minLength: 2, maxLength: 100 },
-  description: { type: 'string', trim: true, maxLength: 500 },
-});
+const { createCategorySchema: createSchema, updateCategorySchema: updateSchema } = require('./categories.validator');
 
 class CategoriesController {
   async list(req, res, next) {

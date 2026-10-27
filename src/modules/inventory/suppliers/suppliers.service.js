@@ -1,6 +1,6 @@
 'use strict';
 
-const { ContactService } = require('../contacts/contact.service');
+const { ContactService } = require('../contacts/contacts.service');
 const { SuppliersRepository } = require('./suppliers.repository');
 
 class SuppliersService extends ContactService {
