@@ -12,11 +12,11 @@ const {
 /**
  * Empleado CON autenticación propia. Vive en su colección (separada de `users`,
  * que es solo para empresas). Se autentica con su email+passwordHash y, al
- * iniciar sesión, opera sobre la empresa (tenant) a la que pertenece.
+ * iniciar sesión, opera sobre la empresa (empresa) a la que pertenece.
  */
 const EmployeeSchema = applyPlatformSchema({
-  // Empresa (tenant) dueña del empleado.
-  tenantId: { type: Number, required: true, index: true },
+  // Empresa (empresa) dueña del empleado.
+  userId: { type: Number, required: true, index: true },
   name: { type: String, required: true, trim: true, maxlength: 160 },
   email: { type: String, required: true, trim: true, lowercase: true, maxlength: 254 },
   passwordHash: { type: String, required: true, select: false },
@@ -53,13 +53,13 @@ EmployeeSchema.index(
 );
 // Documento único por empresa (si se diligencia).
 EmployeeSchema.index(
-  { tenantId: 1, documentNumber: 1 },
+  { userId: 1, documentNumber: 1 },
   {
     unique: true,
     partialFilterExpression: { recordStatus: RECORD_STATUS.ACTIVE, documentNumber: { $gt: '' } },
   },
 );
-EmployeeSchema.index({ tenantId: 1, role: 1, status: 1, name: 1 });
-EmployeeSchema.index({ tenantId: 1, phone: 1 });
+EmployeeSchema.index({ userId: 1, role: 1, status: 1, name: 1 });
+EmployeeSchema.index({ userId: 1, phone: 1 });
 
 module.exports = mongoose.model('foundation_employees', EmployeeSchema);

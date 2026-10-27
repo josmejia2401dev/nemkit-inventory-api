@@ -8,11 +8,11 @@
  * en el JWT) pueden acceder a un grupo de rutas y, cuando aplica, se separa
  * lectura (GET) de escritura (POST/PUT/DELETE).
  *
- * ADMIN tiene acceso total a los datos operativos de su tenant. SUPERADMIN
+ * ADMIN tiene acceso total a los datos operativos de su empresa. SUPERADMIN
  * administra la plataforma mediante /platform, con un alcance global distinto.
  */
 
-const ALL = 'ALL'; // marcador: todos los roles autenticados del tenant
+const ALL = 'ALL'; // marcador: todos los roles autenticados del empresa
 
 /**
  * Para cada recurso montado en el router:
@@ -76,8 +76,12 @@ const PERMISSIONS = Object.freeze({
     read: [],
     write: [],
   },
+  'employee-payments': {
+    read: [],
+    write: [],
+  },
   dashboard: {
-    read: ALL, // cualquier usuario autenticado ve su dashboard (el contenido ya está acotado por rol/tenant)
+    read: ALL, // cualquier usuario autenticado ve su dashboard (el contenido ya está acotado por rol/empresa)
     write: [],
   },
 });

@@ -2,14 +2,14 @@
 
 const { success } = require('nemkit');
 const { kitchenService } = require('./kitchen.service');
-const { kitchenStatusSchema } = require('./kitchen.validator');
+const { orderStatusSchema } = require('./kitchen.validator');
 const { cancelSchema } = require('../sales/sales.validator');
 
 class KitchenController {
   async queue(req, res, next) {
     try {
       return success(res, await kitchenService.list(req.user.id, {
-        includeServed: req.query.includeServed === 'true',
+        includeCompleted: req.query.includeCompleted === 'true',
       }));
     } catch (error) {
       next(error);
@@ -18,9 +18,15 @@ class KitchenController {
 
   async changeStatus(req, res, next) {
     try {
-      const { errorResponse, sanitized } = kitchenStatusSchema.check(req.body ?? {}, req);
+      const { errorResponse, sanitized } = orderStatusSchema.check(req.body ?? {}, req);
       if (errorResponse) return res.status(400).json(errorResponse);
-      return success(res, await kitchenService.changeStatus(req.params.id, sanitized.kitchenStatus, req.user.id));
+      return success(res, await kitchenService.changeStatus(
+        req.params.id,
+        sanitized.orderStatus,
+        req.user.id,
+        req.user.businessType,
+        req.user.roles ?? [],
+      ));
     } catch (error) {
       next(error);
     }

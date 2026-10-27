@@ -13,47 +13,56 @@ class SalesRepository extends InventoryDocumentRepository {
     super(Sale);
   }
 
-  async listKitchenOrders(userId, includeServed) {
+  async listKitchenOrders(userId, includeCompleted) {
     const filter = {
       userId,
       recordStatus: RECORD_STATUS.ACTIVE,
       kitchenStatus: { $ne: null },
       status: { $ne: DOCUMENT_STATUS.VOID },
     };
-    if (!includeServed) {
-      filter.kitchenStatus = {
-        $in: [KITCHEN_STATUS.PENDING, KITCHEN_STATUS.PREPARING, KITCHEN_STATUS.READY],
-      };
+    if (!includeCompleted) {
+      const activeStatuses = [KITCHEN_STATUS.PENDING, KITCHEN_STATUS.PREPARING, KITCHEN_STATUS.READY];
+      filter.$or = [
+        { orderStatus: { $in: activeStatuses } },
+        { orderStatus: { $in: [null] }, kitchenStatus: { $in: activeStatuses } },
+      ];
     }
 
     const sales = await this._applyTimeout(this.model.find(filter)
-      .select('_id date tableNumber kitchenStatus orderStatus kitchenTimeline paymentStatus paidAt items total customerSnapshot employeeSnapshot notes')
+      .select('_id date tableNumber orderChannel kitchenStatus orderStatus kitchenTimeline paymentStatus paidAt items total customerSnapshot employeeSnapshot notes')
       .sort({ date: 1 })
       .limit(200)
       .lean());
-    return sales.map(({ _id, ...rest }) => ({ id: _id, ...rest }));
+    return sales.map(({ _id, ...rest }) => ({
+      id: _id,
+      ...rest,
+      orderStatus: rest.orderStatus ?? rest.kitchenStatus,
+    }));
   }
 
   findKitchenSale(id, userId) {
     return this.findOne({ _id: id, userId, recordStatus: RECORD_STATUS.ACTIVE });
   }
 
-  async setKitchenState(id, userId, currentStatus, kitchenStatus, timeline, session) {
-    const update = { kitchenStatus, orderStatus: kitchenStatus, updatedBy: userId };
+  setOrderProgressInSession(id, userId, currentStatus, nextStatus, timeline, session) {
+    const update = {
+      orderStatus: nextStatus,
+      updatedBy: userId,
+    };
     for (const [field, value] of Object.entries(timeline)) {
       update[`kitchenTimeline.${field}`] = value;
     }
-    const result = await this._applyTimeout(this.model.updateOne(
-      {
-        _id: id,
-        userId,
-        recordStatus: RECORD_STATUS.ACTIVE,
-        kitchenStatus: currentStatus,
-      },
-      { $set: update },
-      { session },
-    ));
-    return result.matchedCount > 0;
+    const filter = {
+      _id: id,
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      status: { $ne: DOCUMENT_STATUS.VOID },
+      $or: [
+        { orderStatus: currentStatus },
+        { orderStatus: null, kitchenStatus: currentStatus },
+      ],
+    };
+    return this._applyTimeout(this.model.updateOne(filter, { $set: update }, { session }));
   }
 
   setOrderStatusInSession(id, userId, orderStatus, session) {
@@ -83,121 +92,133 @@ class SalesRepository extends InventoryDocumentRepository {
   }
 
   async customerAnalytics(userId, customerId) {
-    const [result] = await applyMongoTimeout(this.model.aggregate([
-      {
-        $match: {
-          userId,
-          customerId,
-          recordStatus: RECORD_STATUS.ACTIVE,
-          status: { $ne: DOCUMENT_STATUS.VOID },
+    const [analyticsRows, cancelledOrders] = await Promise.all([
+      applyMongoTimeout(this.model.aggregate([
+        {
+          $match: {
+            userId,
+            customerId,
+            recordStatus: RECORD_STATUS.ACTIVE,
+            status: { $ne: DOCUMENT_STATUS.VOID },
+          },
         },
-      },
-      { $sort: { date: 1, _id: 1 } },
-      {
-        $lookup: {
-          from: 'inventory_deliveries',
-          let: { saleId: '$_id', tenantId: '$userId' },
-          pipeline: [
-            { $match: { $expr: { $and: [
-              { $eq: ['$saleId', '$$saleId'] },
-              { $eq: ['$userId', '$$tenantId'] },
-            ] } } },
-            { $limit: 1 },
-            { $project: { _id: 1 } },
-          ],
-          as: 'deliveryLink',
-        },
-      },
-      {
-        $addFields: {
-          isDelivery: {
-            $or: [
-              { $eq: ['$orderChannel', 'delivery'] },
-              { $gt: [{ $size: '$deliveryLink' }, 0] },
+        { $sort: { date: 1, _id: 1 } },
+        {
+          $lookup: {
+            from: 'inventory_deliveries',
+            let: { saleId: '$_id', userId: '$userId' },
+            pipeline: [
+              { $match: { $expr: { $and: [
+                { $eq: ['$saleId', '$$saleId'] },
+                { $eq: ['$userId', '$$userId'] },
+              ] } } },
+              { $limit: 1 },
+              { $project: { _id: 1 } },
             ],
+            as: 'deliveryLink',
           },
         },
-      },
-      {
-        $group: {
-          _id: null,
-          totalOrders: { $sum: 1 },
-          paidOrders: { $sum: { $cond: [{ $eq: ['$paymentStatus', PAYMENT_STATUS.PAID] }, 1, 0] } },
-          deliveryOrders: { $sum: { $cond: ['$isDelivery', 1, 0] } },
-          onSiteOrders: { $sum: { $cond: ['$isDelivery', 0, 1] } },
-          totalSpent: { $sum: { $cond: [{ $eq: ['$paymentStatus', PAYMENT_STATUS.PAID] }, '$total', 0] } },
-          firstOrderAt: { $min: '$date' },
-          lastOrderAt: { $max: '$date' },
-          purchaseDates: { $push: { $cond: [{ $eq: ['$paymentStatus', PAYMENT_STATUS.PAID] }, '$date', null] } },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          totalOrders: 1,
-          paidOrders: 1,
-          deliveryOrders: 1,
-          onSiteOrders: 1,
-          totalSpent: 1,
-          firstOrderAt: 1,
-          lastOrderAt: 1,
-          averageOrderValue: {
-            $cond: [{ $gt: ['$paidOrders', 0] }, { $divide: ['$totalSpent', '$paidOrders'] }, 0],
+        {
+          $addFields: {
+            isDelivery: {
+              $or: [
+                { $eq: ['$orderChannel', 'delivery'] },
+                { $gt: [{ $size: '$deliveryLink' }, 0] },
+              ],
+            },
           },
-          averageDaysBetweenPurchases: {
-            $let: {
-              vars: {
-                dates: { $filter: { input: '$purchaseDates', as: 'date', cond: { $ne: ['$$date', null] } } },
-              },
-              in: {
-                $cond: [
-                  { $gt: [{ $size: '$$dates' }, 1] },
-                  {
-                    $let: {
-                      vars: {
-                        gaps: {
-                          $reduce: {
-                            input: '$$dates',
-                            initialValue: { previous: null, totalMilliseconds: 0 },
-                            in: {
-                              previous: '$$this',
-                              totalMilliseconds: {
-                                $add: [
-                                  '$$value.totalMilliseconds',
-                                  { $cond: [{ $ne: ['$$value.previous', null] }, { $subtract: ['$$this', '$$value.previous'] }, 0] },
-                                ],
+        },
+        {
+          $group: {
+            _id: null,
+            totalOrders: { $sum: 1 },
+            paidOrders: { $sum: { $cond: [{ $eq: ['$paymentStatus', PAYMENT_STATUS.PAID] }, 1, 0] } },
+            deliveryOrders: { $sum: { $cond: ['$isDelivery', 1, 0] } },
+            onSiteOrders: { $sum: { $cond: ['$isDelivery', 0, 1] } },
+            totalSpent: { $sum: { $cond: [{ $eq: ['$paymentStatus', PAYMENT_STATUS.PAID] }, '$total', 0] } },
+            firstOrderAt: { $min: '$date' },
+            lastOrderAt: { $max: '$date' },
+            purchaseDates: { $push: { $cond: [{ $eq: ['$paymentStatus', PAYMENT_STATUS.PAID] }, '$date', null] } },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            totalOrders: 1,
+            paidOrders: 1,
+            deliveryOrders: 1,
+            onSiteOrders: 1,
+            totalSpent: 1,
+            firstOrderAt: 1,
+            lastOrderAt: 1,
+            averageOrderValue: {
+              $cond: [{ $gt: ['$paidOrders', 0] }, { $divide: ['$totalSpent', '$paidOrders'] }, 0],
+            },
+            averageDaysBetweenPurchases: {
+              $let: {
+                vars: {
+                  dates: { $filter: { input: '$purchaseDates', as: 'date', cond: { $ne: ['$$date', null] } } },
+                },
+                in: {
+                  $cond: [
+                    { $gt: [{ $size: '$$dates' }, 1] },
+                    {
+                      $let: {
+                        vars: {
+                          gaps: {
+                            $reduce: {
+                              input: '$$dates',
+                              initialValue: { previous: null, totalMilliseconds: 0 },
+                              in: {
+                                previous: '$$this',
+                                totalMilliseconds: {
+                                  $add: [
+                                    '$$value.totalMilliseconds',
+                                    { $cond: [{ $ne: ['$$value.previous', null] }, { $subtract: ['$$this', '$$value.previous'] }, 0] },
+                                  ],
+                                },
                               },
                             },
                           },
                         },
-                      },
-                      in: {
-                        $divide: [
-                          { $divide: ['$$gaps.totalMilliseconds', 86400000] },
-                          { $subtract: [{ $size: '$$dates' }, 1] },
-                        ],
+                        in: {
+                          $divide: [
+                            { $divide: ['$$gaps.totalMilliseconds', 86400000] },
+                            { $subtract: [{ $size: '$$dates' }, 1] },
+                          ],
+                        },
                       },
                     },
-                  },
-                  null,
-                ],
+                    null,
+                  ],
+                },
               },
             },
           },
         },
-      },
-    ]), this.queryTimeoutMs);
+      ]), this.queryTimeoutMs),
+      this._applyTimeout(this.model.countDocuments({
+        userId,
+        customerId,
+        recordStatus: RECORD_STATUS.ACTIVE,
+        status: DOCUMENT_STATUS.VOID,
+      })),
+    ]);
+    const result = analyticsRows[0];
 
-    return result || {
-      totalOrders: 0,
-      paidOrders: 0,
-      deliveryOrders: 0,
-      onSiteOrders: 0,
-      totalSpent: 0,
-      averageOrderValue: 0,
-      averageDaysBetweenPurchases: null,
-      firstOrderAt: null,
-      lastOrderAt: null,
+    return {
+      ...(result || {
+        totalOrders: 0,
+        paidOrders: 0,
+        deliveryOrders: 0,
+        onSiteOrders: 0,
+        totalSpent: 0,
+        averageOrderValue: 0,
+        averageDaysBetweenPurchases: null,
+        firstOrderAt: null,
+        lastOrderAt: null,
+      }),
+      cancelledOrders,
     };
   }
 
@@ -328,11 +349,36 @@ class SalesRepository extends InventoryDocumentRepository {
           salesCount: { $sum: 1 },
           unitsSold: { $sum: '$unitsSold' },
           revenue: { $sum: '$total' },
+          collectedValue: { $sum: { $cond: [{ $eq: ['$paymentStatus', PAYMENT_STATUS.PAID] }, '$total', 0] } },
+          pendingValue: { $sum: { $cond: [{ $eq: ['$paymentStatus', PAYMENT_STATUS.PENDING] }, '$total', 0] } },
           grossProfit: { $sum: '$grossProfit' },
         },
       },
       { $sort: { revenue: -1 } },
-      { $project: { _id: 0, employeeId: '$_id', employeeName: 1, salesCount: 1, unitsSold: 1, revenue: 1, grossProfit: 1 } },
+      { $project: { _id: 0, employeeId: '$_id', employeeName: 1, salesCount: 1, unitsSold: 1, revenue: 1, collectedValue: 1, pendingValue: 1, grossProfit: 1 } },
+    ]), this.queryTimeoutMs);
+  }
+
+  reportCollectionsByEmployee(userId, from, toExclusive) {
+    return applyMongoTimeout(this.model.aggregate([
+      {
+        $match: {
+          userId,
+          recordStatus: RECORD_STATUS.ACTIVE,
+          status: { $ne: DOCUMENT_STATUS.VOID },
+          paymentStatus: PAYMENT_STATUS.PAID,
+          paidAt: { $gte: from, $lt: toExclusive },
+        },
+      },
+      {
+        $group: {
+          _id: '$employeeId',
+          employeeName: { $last: '$employeeSnapshot.name' },
+          collectionsCount: { $sum: 1 },
+          collectedInPeriod: { $sum: '$total' },
+        },
+      },
+      { $project: { _id: 0, employeeId: '$_id', employeeName: 1, collectionsCount: 1, collectedInPeriod: 1 } },
     ]), this.queryTimeoutMs);
   }
 

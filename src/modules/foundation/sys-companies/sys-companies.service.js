@@ -5,6 +5,7 @@ const { usersService } = require('../users/users.service');
 const { employeesService } = require('../employees/employees.service');
 const { paginationOptions } = require('../query.utils');
 const { presentPlatformUser } = require('../users/users.presenter');
+const { presentEmployee } = require('../employees/employees.presenter');
 const { ACCOUNT_TYPE } = require('../users/users.constants');
 
 function positiveInteger(value, field) {
@@ -13,32 +14,13 @@ function positiveInteger(value, field) {
   return n;
 }
 
-/** Representa un empleado (colección propia) con la forma del panel de plataforma. */
-function presentEmployee(employee, companyName, businessType) {
-  return {
-    id: employee.id ?? employee._id,
-    fullName: employee.name,
-    email: employee.email,
-    roles: [String(employee.role ?? '').toUpperCase()],
-    tenantId: employee.tenantId,
-    companyName: companyName ?? '',
-    businessType: businessType ?? 'retail',
-    role: employee.role,
-    status: employee.status,
-    recordStatus: employee.recordStatus,
-    isOwner: false,
-    isEmployee: true,
-    createdAt: employee.createdAt,
-  };
-}
-
 class PlatformCompaniesService {
   async list(query = {}) {
     const { page, limit, search } = paginationOptions(query);
     const result = await usersService.listOwners({ page, limit, search });
     // Los empleados viven en su propia colección: contamos ahí, no en users.
-    const memberCounts = await employeesService.countByTenants(result.data.map((owner) => owner.id));
-    const memberCountsByTenant = new Map(memberCounts.map((entry) => [entry._id, entry.count]));
+    const memberCounts = await employeesService.countByUsers(result.data.map((owner) => owner.id));
+    const memberCountsByUser = new Map(memberCounts.map((entry) => [entry._id, entry.count]));
     const data = result.data.map((owner) => ({
       id: owner.id,
       companyName: owner.companyName || owner.fullName,
@@ -48,7 +30,7 @@ class PlatformCompaniesService {
       recordStatus: owner.recordStatus,
       createdAt: owner.createdAt,
       // dueño + empleados
-      memberCount: (memberCountsByTenant.get(owner.id) ?? 0) + 1,
+      memberCount: (memberCountsByUser.get(owner.id) ?? 0) + 1,
     }));
     return { data, pagination: result.pagination };
   }
@@ -62,12 +44,12 @@ class PlatformCompaniesService {
         && owner.employeeId == null
         && !owner.roles?.includes('SUPERADMIN')
       );
-    if (!isCompanyOwner || (owner.tenantId ?? owner.id) !== companyId) {
+    if (!isCompanyOwner || (owner.userId ?? owner.id) !== companyId) {
       throw HttpError.badRequest('The given id does not belong to a company owner');
     }
     const companyName = owner.companyName || owner.fullName;
     const businessType = owner.businessType ?? 'retail';
-    const employees = await employeesService.listByTenant(owner.id);
+    const employees = await employeesService.listByUser(owner.id, { includeDeleted: true });
     return {
       id: owner.id,
       companyName,

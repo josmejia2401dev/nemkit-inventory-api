@@ -34,6 +34,38 @@ class SalesService extends InventoryDocumentService {
     });
   }
 
+  async list(userId, query = {}) {
+    const result = await super.list(userId, query);
+    const normalizeStatus = (status) => status === 'served'
+      ? ORDER_STATUS.DELIVERED
+      : status === 'picked_up'
+        ? ORDER_STATUS.ON_ROUTE
+        : status;
+    const normalizedSales = result.data.map((sale) => ({
+      ...sale,
+      orderStatus: normalizeStatus(sale.orderStatus),
+    }));
+    const saleIds = normalizedSales.map((sale) => sale._id ?? sale.id).filter(Number.isFinite);
+    if (!saleIds.length) return { ...result, data: normalizedSales };
+
+    const deliveries = await deliveriesService.summariesBySaleIds(userId, saleIds);
+    const deliveryBySaleId = new Map(deliveries.map((delivery) => [delivery.saleId, delivery]));
+
+    return {
+      ...result,
+      data: normalizedSales.map((sale) => {
+        const delivery = deliveryBySaleId.get(sale._id ?? sale.id);
+        return delivery
+          ? {
+            ...sale,
+            deliveryStatus: normalizeStatus(delivery.status),
+            deliveryCourierName: delivery.courierSnapshot?.name ?? '',
+          }
+          : sale;
+      }),
+    };
+  }
+
   /**
    * Si la venta es a domicilio (data.delivery presente), crea el pedido de
    * entrega vinculado a la venta dentro de la misma transacción. La venta ya
@@ -121,7 +153,7 @@ class SalesService extends InventoryDocumentService {
    * una transacción. Idempotente frente a ventas ya anuladas.
    *
    * @param {number} saleId
-   * @param {number} userId - tenant
+   * @param {number} userId - empresa
    * @param {Object} [options]
    * @param {string} [options.reason]     - código de motivo (CANCEL_REASON)
    * @param {string} [options.note]       - nota libre opcional (p. ej. para 'other')
@@ -279,21 +311,47 @@ class SalesService extends InventoryDocumentService {
   }
 
   async reportSalesByEmployee(userId, range) {
-    const rows = await this.repository.reportSalesByEmployee({
-      userId,
-      recordStatus: RECORD_STATUS.ACTIVE,
-      status: { $ne: DOCUMENT_STATUS.VOID },
-      paymentStatus: PAYMENT_STATUS.PAID,
-      date: { $gte: range.from, $lt: range.toExclusive },
+    const [rows, collectionRows] = await Promise.all([
+      this.repository.reportSalesByEmployee({
+        userId,
+        recordStatus: RECORD_STATUS.ACTIVE,
+        status: { $ne: DOCUMENT_STATUS.VOID },
+        date: { $gte: range.from, $lt: range.toExclusive },
+      }),
+      this.repository.reportCollectionsByEmployee(userId, range.from, range.toExclusive),
+    ]);
+    const collectionsByEmployee = new Map(collectionRows.map((row) => [row.employeeId, row]));
+    const employees = rows.map((row) => {
+      const collections = collectionsByEmployee.get(row.employeeId);
+      return {
+        employeeId: row.employeeId ?? null,
+        employeeName: row.employeeName || (row.employeeId ? `Empleado #${row.employeeId}` : 'Sin asignar'),
+        salesCount: row.salesCount,
+        unitsSold: row.unitsSold,
+        revenue: this.#roundMoney(row.revenue),
+        collectedValue: this.#roundMoney(row.collectedValue),
+        pendingValue: this.#roundMoney(row.pendingValue),
+        collectedInPeriod: this.#roundMoney(collections?.collectedInPeriod ?? 0),
+        collectionsCount: collections?.collectionsCount ?? 0,
+        grossProfit: this.#roundMoney(row.grossProfit),
+      };
     });
-    const employees = rows.map((row) => ({
-      employeeId: row.employeeId ?? null,
-      employeeName: row.employeeName || (row.employeeId ? `Empleado #${row.employeeId}` : 'Sin asignar'),
-      salesCount: row.salesCount,
-      unitsSold: row.unitsSold,
-      revenue: this.#roundMoney(row.revenue),
-      grossProfit: this.#roundMoney(row.grossProfit),
-    }));
+    const employeeIds = new Set(employees.map((row) => row.employeeId));
+    for (const row of collectionRows) {
+      if (employeeIds.has(row.employeeId)) continue;
+      employees.push({
+        employeeId: row.employeeId ?? null,
+        employeeName: row.employeeName || (row.employeeId ? `Empleado #${row.employeeId}` : 'Sin asignar'),
+        salesCount: 0,
+        unitsSold: 0,
+        revenue: 0,
+        collectedValue: 0,
+        pendingValue: 0,
+        collectedInPeriod: this.#roundMoney(row.collectedInPeriod),
+        collectionsCount: row.collectionsCount,
+        grossProfit: 0,
+      });
+    }
 
     return {
       generatedAt: new Date(),
@@ -302,6 +360,10 @@ class SalesService extends InventoryDocumentService {
         salesCount: employees.reduce((sum, employee) => sum + employee.salesCount, 0),
         unitsSold: employees.reduce((sum, employee) => sum + employee.unitsSold, 0),
         revenue: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.revenue, 0)),
+        collectedValue: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.collectedValue, 0)),
+        pendingValue: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.pendingValue, 0)),
+        collectedInPeriod: this.#roundMoney(collectionRows.reduce((sum, employee) => sum + employee.collectedInPeriod, 0)),
+        collectionsCount: collectionRows.reduce((sum, employee) => sum + employee.collectionsCount, 0),
         grossProfit: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.grossProfit, 0)),
       },
       employees,
@@ -332,8 +394,8 @@ class SalesService extends InventoryDocumentService {
   }
 
   /** Lista comandas activas del agregado de ventas. */
-  listKitchenOrders(userId, { includeServed = false } = {}) {
-    return this.repository.listKitchenOrders(userId, includeServed);
+  listKitchenOrders(userId, { includeCompleted = false } = {}) {
+    return this.repository.listKitchenOrders(userId, includeCompleted);
   }
 
   async getKitchenSale(saleId, userId) {
@@ -343,18 +405,61 @@ class SalesService extends InventoryDocumentService {
     return sale;
   }
 
-  async setKitchenState(saleId, userId, currentStatus, status, timeline) {
+  async advanceOrder(saleId, userId, nextStatus, businessType, roles = []) {
     const id = positiveInteger(saleId, 'saleId');
+    const sale = await this.repository.findKitchenSale(id, userId);
+    if (!sale) throw HttpError.notFound('Sale not found');
+    if (sale.status === DOCUMENT_STATUS.VOID) throw HttpError.conflict('Sale is void');
+    if (businessType !== 'restaurant' && sale.orderChannel === 'delivery') {
+      throw HttpError.conflict('Manage delivery order progress from Domicilios');
+    }
+
+    const currentStatus = sale.orderStatus ?? sale.kitchenStatus ?? ORDER_STATUS.PENDING;
+    const allowedNext = {
+      [ORDER_STATUS.PENDING]: [ORDER_STATUS.PREPARING],
+      [ORDER_STATUS.PREPARING]: [ORDER_STATUS.READY],
+      [ORDER_STATUS.READY]: sale.orderChannel === 'delivery'
+        ? []
+        : [ORDER_STATUS.DELIVERED],
+    }[currentStatus] ?? [];
+    if (!allowedNext.includes(nextStatus)) {
+      throw HttpError.conflict(`Cannot change order status from ${currentStatus} to ${nextStatus}`);
+    }
+
+    const allowedRoles = this.#allowedPreparationRoles(sale, businessType);
+    if (!roles.some((role) => allowedRoles.includes(role))) {
+      throw HttpError.forbidden('Your role cannot advance this order');
+    }
+    if ((businessType === 'restaurant') !== (sale.kitchenStatus != null)) {
+      throw HttpError.conflict('This order belongs to a different preparation workflow');
+    }
+
+    const now = new Date();
+    const timeline = {};
+    if (nextStatus === ORDER_STATUS.PREPARING) timeline.startedAt = now;
+    if (nextStatus === ORDER_STATUS.READY) timeline.readyAt = now;
+    if (nextStatus === ORDER_STATUS.DELIVERED) timeline.deliveredAt = now;
+
     return this.repository.withTransaction(async (session) => {
-      const updated = await this.repository.setKitchenState(id, userId, currentStatus, status, timeline, session);
-      if (!updated) {
-        const current = await this.repository.findKitchenSale(id, userId);
-        if (!current) throw HttpError.notFound('Sale not found');
-        throw HttpError.conflict('Kitchen order status changed; refresh and try again');
+      const result = await this.repository.setOrderProgressInSession(
+        id,
+        userId,
+        currentStatus,
+        nextStatus,
+        timeline,
+        session,
+      );
+      if (result.matchedCount !== 1) {
+        throw HttpError.conflict('Order status changed; refresh and try again');
       }
-      await deliveriesService.syncFromKitchen(id, userId, status, session);
-      return { id, kitchenStatus: status, orderStatus: status };
+      await deliveriesService.syncFromKitchen(id, userId, nextStatus, session);
+      return { id, orderStatus: nextStatus };
     });
+  }
+
+  #allowedPreparationRoles(sale, businessType) {
+    if (businessType !== 'restaurant') return ['ADMIN', 'SELLER'];
+    return ['ADMIN', 'SELLER', 'WAITER', 'CASHIER', 'COOK'];
   }
 
   async setOrderStatusFromDelivery(saleId, userId, status, session) {
@@ -383,7 +488,6 @@ class SalesService extends InventoryDocumentService {
       if (sale.paymentStatus === PAYMENT_STATUS.PAID) {
         throw HttpError.conflict('Sale is already paid');
       }
-
       const now = new Date();
       await this.repository.updateOwnedInSession(
         id,

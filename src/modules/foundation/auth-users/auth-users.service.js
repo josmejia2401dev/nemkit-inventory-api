@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { HttpError, hashPassword, comparePassword, JwtManager } = require('nemkit');
+const { ACCOUNT_TYPE } = require('../users/users.constants');
 const { env } = require('../../../config/env');
 const { usersService } = require('../users/users.service');
 const { tokensService } = require('../tokens/tokens.service');
@@ -80,9 +81,9 @@ class AuthService {
     if (!result) throw HttpError.unauthorized('Session expired or revoked');
 
     const newJti = String(result.newSession.id);
-    const tenantId = user.tenantId ?? user.id;
-    const businessType = await this.#resolveBusinessType(user, tenantId);
-    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, tenantId, employeeId: user.employeeId ?? null, businessType }, newJti);
+    const userId = this.#companyUserId(user);
+    const businessType = await this.#resolveBusinessType(user, userId);
+    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, userId, employeeId: user.employeeId ?? null, businessType }, newJti);
     const newRefreshToken = jwtManager.signRefreshToken({ id: user.id }, newJti);
 
     return { accessToken, refreshToken: newRefreshToken };
@@ -150,9 +151,9 @@ class AuthService {
     const audience = deviceInfo.audience ?? 'web';
     const session = await tokensService.createSession(user.id, audience, deviceInfo);
     const jti = String(session.id);
-    const tenantId = user.tenantId ?? user.id;
-    const businessType = await this.#resolveBusinessType(user, tenantId);
-    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, tenantId, employeeId: user.employeeId ?? null, businessType }, jti);
+    const userId = this.#companyUserId(user);
+    const businessType = await this.#resolveBusinessType(user, userId);
+    const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, userId, employeeId: user.employeeId ?? null, businessType }, jti);
     const refreshToken = jwtManager.signRefreshToken({ id: user.id }, jti);
     return { accessToken, refreshToken };
   }
@@ -163,31 +164,39 @@ class AuthService {
       fullName: user.fullName,
       email: user.email,
       roles: user.roles,
-      tenantId: user.tenantId ?? user.id,
+      userId: this.#companyUserId(user),
     };
   }
 
+  #companyUserId(user) {
+    const isPlatformAccount = [ACCOUNT_TYPE.SUPERADMIN, ACCOUNT_TYPE.UNASSIGNED_EMPLOYEE].includes(user.accountType)
+      || (user.roles?.includes('SUPERADMIN') && !user.roles?.includes('ADMIN') && !user.companyName);
+    return isPlatformAccount ? null : user.userId ?? user.id;
+  }
+
   /**
-   * Tipo de negocio del tenant (lo define el dueño). Para el dueño se lee directo;
+   * Tipo de negocio de la empresa (lo define el dueño). Para el dueño se lee directo;
    * para un empleado se resuelve desde el dueño de su cuenta. Solo en login/refresh.
    */
-  async #resolveBusinessType(user, tenantId) {
-    if (user.businessType && (user.tenantId == null || user.tenantId === user.id)) {
+  async #resolveBusinessType(user, userId) {
+    if (user.businessType && (user.userId == null || user.userId === user.id)) {
       return user.businessType;
     }
-    const owner = await usersService.findById(tenantId);
+    if (userId == null) return 'retail';
+    const owner = await usersService.findById(userId);
     return owner?.businessType ?? 'retail';
   }
 
   /**
-   * Resuelve la empresa (tenant) a la que pertenece el usuario para mostrarla
+   * Resuelve la empresa a la que pertenece el usuario para mostrarla
    * tras el login. Para el dueño es su propia cuenta; para un empleado, la del admin.
    */
   async #company(user) {
-    const tenantId = user.tenantId ?? user.id;
-    const owner = await usersService.findById(tenantId);
+    const userId = this.#companyUserId(user);
+    if (userId == null) return { id: null, name: '', businessType: 'retail' };
+    const owner = await usersService.findById(userId);
     return {
-      id: tenantId,
+      id: userId,
       name: owner?.companyName || owner?.fullName || '',
       businessType: owner?.businessType ?? 'retail',
     };

@@ -1,75 +1,54 @@
 'use strict';
 
-const { success, created, paginated, createValidator, HttpError } = require('nemkit');
+const { success, created, paginated } = require('nemkit');
 const { employeesService: service } = require('./employees.service');
-const { EMPLOYEE_ROLES, EMPLOYEE_STATUSES, DOCUMENT_TYPES } = require('./employees.constants');
+const {
+  createSchema,
+  updateSchema,
+  adminPasswordSchema,
+  listQuerySchema,
+  optionsQuerySchema,
+  validatePhoto,
+} = require('./employees.validator');
 
-const fields = {
-  name: { type: 'string', trim: true, minLength: 2, maxLength: 160 },
-  documentType: { type: 'string', enum: DOCUMENT_TYPES },
-  documentNumber: { type: 'string', trim: true, maxLength: 40 },
-  phone: { type: 'string', trim: true, maxLength: 40 },
-  email: { type: 'string', trim: true, maxLength: 254 },
-  role: { type: 'string', enum: EMPLOYEE_ROLES },
-  hireDate: { type: 'date' },
-  status: { type: 'string', enum: EMPLOYEE_STATUSES },
-};
-
-const createSchema = createValidator({
-  ...fields,
-  name: { ...fields.name, required: true },
-  role: { ...fields.role, required: true },
-  email: { ...fields.email, type: 'email', required: true },
-  password: { type: 'string', required: true, minLength: 6, maxLength: 128 },
-});
-const updateSchema = createValidator(fields);
-
-function validatePhoto(photo) {
-  if (photo === undefined) return undefined;
-  if (!photo || typeof photo !== 'object' || Array.isArray(photo)) {
-    throw HttpError.badRequest('photo must be an object');
+function check(schema, data, req, res) {
+  const result = schema.check(data ?? {}, req);
+  if (result.errorResponse) {
+    res.status(400).json(result.errorResponse);
+    return null;
   }
-  const allowed = new Set(['url', 'storageKey']);
-  if (Object.keys(photo).some((key) => !allowed.has(key))) {
-    throw HttpError.badRequest('photo contains unsupported fields');
-  }
-  for (const field of allowed) {
-    const maxLength = field === 'url' ? 2048 : 512;
-    const invalid = photo[field] !== undefined
-      && (typeof photo[field] !== 'string' || photo[field].length > maxLength);
-    if (invalid) throw HttpError.badRequest(`photo.${field} must be a string within the allowed length`);
-  }
-  if (photo.url) {
-    let parsed;
-    try { parsed = new URL(photo.url); } catch { throw HttpError.badRequest('photo.url must be a valid HTTP(S) URL'); }
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      throw HttpError.badRequest('photo.url must use HTTP or HTTPS');
-    }
-  }
-  return photo;
+  return result.sanitized;
 }
 
 class EmployeesController {
   async list(req, res, next) {
     try {
-      const result = await service.list(req.user.id, req.query);
+      const query = check(listQuerySchema, req.query, req, res);
+      if (!query) return;
+      const result = await service.list(req.user.id, query);
       return paginated(res, result.data, result.pagination);
     } catch (error) { next(error); }
   }
 
   async options(req, res, next) {
     try {
-      return success(res, await service.options(req.user.id, req.query));
+      const query = check(optionsQuerySchema, req.query, req, res);
+      if (!query) return;
+      return success(res, await service.options(req.user.id, query));
     } catch (error) { next(error); }
   }
 
   async create(req, res, next) {
     try {
-      const { errorResponse, sanitized } = createSchema.check(req.body, req);
-      if (errorResponse) return res.status(400).json(errorResponse);
-      const photo = validatePhoto(req.body?.photo);
+      const sanitized = check(createSchema, req.body, req, res);
+      if (!sanitized) return;
+      const photo = validatePhoto(sanitized.photo);
       if (photo !== undefined) sanitized.photo = photo;
-      return created(res, await service.create(sanitized, req.user.id));
+      return created(res, await service.create(
+        sanitized,
+        req.user.id,
+        req.user.actorId ?? req.user.id,
+      ));
     } catch (error) { next(error); }
   }
 
@@ -81,18 +60,36 @@ class EmployeesController {
 
   async update(req, res, next) {
     try {
-      const { errorResponse, sanitized } = updateSchema.check(req.body, req);
-      if (errorResponse) return res.status(400).json(errorResponse);
-      const photo = validatePhoto(req.body?.photo);
+      const sanitized = check(updateSchema, req.body, req, res);
+      if (!sanitized) return;
+      const photo = validatePhoto(sanitized.photo);
       if (photo !== undefined) sanitized.photo = photo;
-      return success(res, await service.update(req.params.id, sanitized, req.user.id));
+      return success(res, await service.update(
+        req.params.id,
+        sanitized,
+        req.user.id,
+        req.user.actorId ?? req.user.id,
+      ));
     } catch (error) { next(error); }
   }
 
   async remove(req, res, next) {
     try {
-      await service.remove(req.params.id, req.user.id, req.user.userId ?? req.user.id);
+      await service.remove(req.params.id, req.user.id, req.user.actorId ?? req.user.id);
       return success(res, null, 'Employee removed');
+    } catch (error) { next(error); }
+  }
+
+  async resetPassword(req, res, next) {
+    try {
+      const sanitized = check(adminPasswordSchema, req.body, req, res);
+      if (!sanitized) return;
+      return success(res, await service.resetPassword(
+        req.params.id,
+        req.user.id,
+        sanitized.newPassword,
+        req.user.actorId ?? req.user.id,
+      ), 'Temporary password set');
     } catch (error) { next(error); }
   }
 }

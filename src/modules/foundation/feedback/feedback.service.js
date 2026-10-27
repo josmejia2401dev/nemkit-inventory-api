@@ -15,7 +15,7 @@ class FeedbackService extends BaseService {
    * quién reportó y desde qué empresa para que el super admin tenga contexto.
    *
    * @param {{title:string, description:string, type?:string}} data
-   * @param {{id:number, fullName?:string, email?:string, companyName?:string, tenantId?:number}} user
+   * @param {{id:number, fullName?:string, email?:string, companyName?:string, userId?:number}} user
    */
   async createForUser(data, user) {
     const title = String(data.title ?? '').trim();
@@ -30,8 +30,7 @@ class FeedbackService extends BaseService {
 
     return this.create({
       _id: UniqueNumberUtil.generateRaw(),
-      userId: user.id,
-      tenantId: user.tenantId ?? user.id,
+      userId: user.userId ?? user.id,
       userSnapshot: {
         fullName: user.fullName ?? '',
         email: user.email ?? '',

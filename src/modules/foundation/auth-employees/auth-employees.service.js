@@ -22,7 +22,7 @@ const jwtManager = new JwtManager({
 
 /**
  * Autenticación de EMPLEADOS (colección propia, separada de las empresas).
- * El token marca `type: 'employee'` y lleva el `tenantId` de la empresa, de modo
+ * El token marca `type: 'employee'` y lleva el `userId` de la empresa, de modo
  * que el empleado opera sobre los datos de su empresa igual que antes.
  */
 class AuthEmployeeService {
@@ -64,10 +64,9 @@ class AuthEmployeeService {
     const { accessToken, refreshToken } = await this.#createTokens(employee, deviceInfo);
     return {
       user: this.#publicEmployee(employee),
-      company: await this.#company(employee.tenantId),
+      company: await this.#company(employee.userId),
       accessToken,
       refreshToken,
-      mustChangePassword: employee.security?.mustChangePassword ?? false,
     };
   }
 
@@ -149,7 +148,7 @@ class AuthEmployeeService {
       email: employee.email,
       fullName: employee.name,
       roles,
-      tenantId: employee.tenantId,
+      userId: employee.userId,
       employeeId: employee.id,
     }, jti);
   }
@@ -160,16 +159,16 @@ class AuthEmployeeService {
       fullName: employee.name,
       email: employee.email,
       roles: EMPLOYEE_ROLE_TO_USER_ROLES[employee.role] ?? [],
-      tenantId: employee.tenantId,
+      userId: employee.userId,
       employeeId: employee.id,
       role: employee.role,
     };
   }
 
-  async #company(tenantId) {
-    const owner = await usersService.findById(tenantId);
+  async #company(userId) {
+    const owner = await usersService.findById(userId);
     return {
-      id: tenantId,
+      id: userId,
       name: owner?.companyName || owner?.fullName || '',
       businessType: owner?.businessType ?? 'retail',
     };

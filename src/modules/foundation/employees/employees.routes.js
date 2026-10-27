@@ -9,6 +9,7 @@ const router = express.Router();
 // La gestión de empleados es exclusiva del administrador de la empresa.
 router.get('/', c.list.bind(c));
 router.post('/', requireRole('ADMIN'), c.create.bind(c));
+router.put('/:id/password', requireRole('ADMIN'), c.resetPassword.bind(c));
 router.get('/:id', c.get.bind(c));
 router.put('/:id', requireRole('ADMIN'), c.update.bind(c));
 router.delete('/:id', requireRole('ADMIN'), c.remove.bind(c));

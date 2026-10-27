@@ -1,7 +1,7 @@
 {
   "name": "nemkit-inventory-api",
   "version": "1.1.0",
-  "description": "API de gestión básica de inventario",
+  "description": "API de gesti\u00f3n b\u00e1sica de inventario",
   "main": "src/server.js",
   "engines": {
     "node": ">=20.19.0"
@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "migrate:company-user-id": "node src/scripts/migrations/001-company-user-id.js"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

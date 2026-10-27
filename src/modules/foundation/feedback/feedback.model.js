@@ -6,7 +6,7 @@ const { FEEDBACK_TYPE, FEEDBACK_TYPES, FEEDBACK_STATUS, FEEDBACK_STATUSES } = re
 /**
  * Reporte transversal de bugs/hallazgos/sugerencias. Lo crea cualquier usuario
  * autenticado y lo revisa el super admin (global, no acotado por empresa). Por
- * eso guarda un snapshot de quién reportó y desde qué empresa (tenant).
+ * eso guarda un snapshot de quién reportó y desde qué empresa (empresa).
  */
 const FeedbackSchema = applyPlatformSchema({
   // Autor del reporte (usuario que inició sesión).
@@ -20,7 +20,7 @@ const FeedbackSchema = applyPlatformSchema({
   title: { type: String, required: true, trim: true, maxlength: 160 },
   description: { type: String, required: true, trim: true, maxlength: 4000 },
   status: { type: String, enum: FEEDBACK_STATUSES, default: FEEDBACK_STATUS.OPEN, index: true },
-}, { tenant: true });
+});
 
 FeedbackSchema.index({ status: 1, createdAt: -1 });
 

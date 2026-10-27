@@ -32,7 +32,7 @@ class DeliveriesService extends BaseService {
   }
 
   /**
-   * @param {number} userId - tenant/empresa
+   * @param {number} userId - empresa
    * @param {Object} query - filtros (status, courierId, customerId)
    * @param {Object} [ctx] - contexto de acceso
    * @param {number} [ctx.restrictToCourierId] - si viene, limita a los domicilios
@@ -46,7 +46,9 @@ class DeliveriesService extends BaseService {
       if (!DELIVERY_STATUSES.includes(query.status)) {
         throw HttpError.badRequest(`status must be one of: ${DELIVERY_STATUSES.join(', ')}`);
       }
-      filter.status = query.status;
+      filter.status = query.status === DELIVERY_STATUS.ON_ROUTE
+        ? { $in: [DELIVERY_STATUS.ON_ROUTE, 'picked_up'] }
+        : query.status;
     }
     if (ctx.restrictToCourierId != null) {
       filter.courierId = positiveInteger(ctx.restrictToCourierId, 'courierId');
@@ -57,7 +59,18 @@ class DeliveriesService extends BaseService {
       filter.customerId = positiveInteger(query.customerId, 'customerId');
     }
 
-    return this.filterAndPaginate(filter, { page, limit, sort: { createdAt: -1 } });
+    const result = await this.filterAndPaginate(filter, { page, limit, sort: { createdAt: -1 } });
+    return {
+      ...result,
+      data: result.data.map((delivery) => delivery.status === 'picked_up'
+        ? { ...delivery, status: DELIVERY_STATUS.ON_ROUTE }
+        : delivery),
+    };
+  }
+
+  async summariesBySaleIds(userId, saleIds) {
+    if (!saleIds.length) return [];
+    return this.repository.findSaleSummaries(userId, saleIds);
   }
 
   async getOwned(id, userId, ctx = {}) {
@@ -89,21 +102,12 @@ class DeliveriesService extends BaseService {
       throw HttpError.badRequest(`status must be one of: ${DELIVERY_STATUSES.join(', ')}`);
     }
     const delivery = await this.getOwned(id, userId, ctx);
-    const allowed = [...(DELIVERY_TRANSITIONS[delivery.status] ?? [])];
-    // Excepción tienda (sin cocina): el domiciliario puede recoger directamente
-    // desde 'pending'/'preparing' porque no hay cocina que marque "listo".
-    // En restaurante (fromKitchen) esto NO se permite: debe estar 'ready'.
-    if (!delivery.fromKitchen
-      && (delivery.status === DELIVERY_STATUS.PENDING || delivery.status === DELIVERY_STATUS.PREPARING)
-      && !allowed.includes(DELIVERY_STATUS.PICKED_UP)) {
-      allowed.push(DELIVERY_STATUS.PICKED_UP);
-    }
+    const currentStatus = delivery.status === 'picked_up'
+      ? DELIVERY_STATUS.ON_ROUTE
+      : delivery.status;
+    const allowed = [...(DELIVERY_TRANSITIONS[currentStatus] ?? [])];
     if (!allowed.includes(nextStatus)) {
-      // Mensaje claro cuando el domiciliario intenta recoger antes de que la cocina termine.
-      if (nextStatus === DELIVERY_STATUS.PICKED_UP && delivery.fromKitchen) {
-        throw HttpError.conflict('The kitchen must mark the order as "ready" before it can be picked up');
-      }
-      throw HttpError.conflict(`Cannot change status from ${delivery.status} to ${nextStatus}`);
+      throw HttpError.conflict(`Cannot change status from ${currentStatus} to ${nextStatus}`);
     }
 
     if (nextStatus === DELIVERY_STATUS.CANCELLED && delivery.saleId != null) {
@@ -111,15 +115,14 @@ class DeliveriesService extends BaseService {
       await voidSale(delivery.saleId, userId);
       return this.getOwned(id, userId, ctx);
     }
-    // Recoger o salir a ruta requiere un domiciliario asignado.
-    if ((nextStatus === DELIVERY_STATUS.PICKED_UP || nextStatus === DELIVERY_STATUS.ON_ROUTE)
-      && delivery.courierId == null) {
-      throw HttpError.badRequest('Assign a courier before picking up the delivery');
+    // Salir a ruta requiere un domiciliario asignado; ese paso implica que ya
+    // recogió el pedido, así se evita un estado intermedio duplicado.
+    if (nextStatus === DELIVERY_STATUS.ON_ROUTE && delivery.courierId == null) {
+      throw HttpError.badRequest('Assign a courier before sending the delivery on route');
     }
 
     const update = { status: nextStatus };
     const now = new Date();
-    if (nextStatus === DELIVERY_STATUS.PICKED_UP) update['timeline.pickedUpAt'] = now;
     if (nextStatus === DELIVERY_STATUS.ON_ROUTE) update['timeline.dispatchedAt'] = now;
     if (nextStatus === DELIVERY_STATUS.DELIVERED) update['timeline.deliveredAt'] = now;
     if (nextStatus === DELIVERY_STATUS.CANCELLED) update['timeline.cancelledAt'] = now;
@@ -197,8 +200,7 @@ class DeliveriesService extends BaseService {
     if (delivery.status !== DELIVERY_STATUS.DELIVERED) {
       throw HttpError.badRequest('Proof can only be attached to a delivered order');
     }
-    const validated = this.#validateProof(proof);
-    return this.updateById(id, { proof: validated }, userId);
+    return this.updateById(id, { proof }, userId);
   }
 
   async #resolveCourier(userId, courierId, { required = false } = {}) {
@@ -209,50 +211,6 @@ class DeliveriesService extends BaseService {
     return employeesService.getActiveCourierSnapshot(userId, courierId);
   }
 
-  #validateProof(proof) {
-    if (!proof || typeof proof !== 'object' || Array.isArray(proof)) {
-      throw HttpError.badRequest('proof must be an object');
-    }
-    const allowed = new Set(['photo', 'signature', 'observation']);
-    if (Object.keys(proof).some((key) => !allowed.has(key))) {
-      throw HttpError.badRequest('proof contains unsupported fields');
-    }
-    const result = {};
-    for (const field of ['photo', 'signature']) {
-      if (proof[field] !== undefined) result[field] = this.#validateMedia(proof[field], field);
-    }
-    if (proof.observation !== undefined) {
-      if (typeof proof.observation !== 'string' || proof.observation.length > 1000) {
-        throw HttpError.badRequest('proof.observation must be a string of at most 1000 characters');
-      }
-      result.observation = proof.observation;
-    }
-    return result;
-  }
-
-  #validateMedia(media, field) {
-    if (!media || typeof media !== 'object' || Array.isArray(media)) {
-      throw HttpError.badRequest(`proof.${field} must be an object`);
-    }
-    const allowed = new Set(['url', 'storageKey']);
-    if (Object.keys(media).some((key) => !allowed.has(key))) {
-      throw HttpError.badRequest(`proof.${field} contains unsupported fields`);
-    }
-    for (const key of allowed) {
-      const maxLength = key === 'url' ? 2048 : 512;
-      const invalid = media[key] !== undefined
-        && (typeof media[key] !== 'string' || media[key].length > maxLength);
-      if (invalid) throw HttpError.badRequest(`proof.${field}.${key} must be a string within the allowed length`);
-    }
-    if (media.url) {
-      let parsed;
-      try { parsed = new URL(media.url); } catch { throw HttpError.badRequest(`proof.${field}.url must be a valid HTTP(S) URL`); }
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        throw HttpError.badRequest(`proof.${field}.url must use HTTP or HTTPS`);
-      }
-    }
-    return media;
-  }
 }
 
 module.exports = { DeliveriesService, deliveriesService: new DeliveriesService() };

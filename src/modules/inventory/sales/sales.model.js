@@ -24,7 +24,7 @@ const SaleSchema = applyPlatformSchema({
   },
   employeeId: { type: Number, default: null, index: true },
   employeeSnapshot: { name: { type: String, default: '' } },
-  // Restaurante: comanda en cocina. null = venta normal (no pasa por cocina).
+  // Compatibilidad de lectura para pedidos antiguos; el estado canónico es orderStatus.
   kitchenStatus: { type: String, enum: ['pending', 'preparing', 'ready', 'served'], default: null, index: true },
   orderStatus: { type: String, enum: ORDER_STATUSES, default: null, index: true },
   orderChannel: { type: String, enum: ['delivery', 'on_site'], default: 'on_site', index: true },
@@ -32,7 +32,8 @@ const SaleSchema = applyPlatformSchema({
   kitchenTimeline: {
     startedAt: { type: Date, default: null },
     readyAt: { type: Date, default: null },
-    servedAt: { type: Date, default: null },
+    servedAt: { type: Date, default: null }, // legado
+    deliveredAt: { type: Date, default: null },
   },
   date: { type: Date, required: true, index: true },
   status: { type: String, enum: Object.values(DOCUMENT_STATUS), default: DOCUMENT_STATUS.COMPLETED },
@@ -42,7 +43,7 @@ const SaleSchema = applyPlatformSchema({
   voidedAt: { type: Date, default: null },
   voidedBy: { type: Number, min: 1, default: null },
   voidedBySnapshot: { name: { type: String, default: '' } },
-  // Estado de cobro: paid (tienda al instante; restaurante tras cobrar) o pending.
+  // Estado de cobro: paid (mostrador o cobro registrado) o pending (restaurante/domicilio).
   paymentStatus: { type: String, enum: ['paid', 'pending'], default: 'paid', index: true },
   paidAt: { type: Date, default: null },
   notes: { type: String, trim: true, default: '', maxlength: 1000 },
@@ -53,6 +54,7 @@ const SaleSchema = applyPlatformSchema({
 SaleSchema.index({ userId: 1, date: -1 });
 SaleSchema.index({ userId: 1, customerId: 1, date: -1 });
 SaleSchema.index({ userId: 1, employeeId: 1, date: -1 });
+SaleSchema.index({ userId: 1, paymentStatus: 1, paidAt: -1 });
 SaleSchema.index({ userId: 1, status: 1, voidedAt: -1 });
 // Cola de cocina: comandas activas ordenadas por fecha.
 SaleSchema.index({ userId: 1, kitchenStatus: 1, date: 1 });

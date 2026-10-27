@@ -225,7 +225,7 @@ class InventoryDocumentService extends BaseService {
         documentData.kitchenStatus = kitchenStatus;
         documentData.kitchenTimeline = {};
       }
-      if (isOut && (kitchenStatus != null || data.delivery)) {
+      if (isOut) {
         documentData.orderStatus = ORDER_STATUS.PENDING;
       }
       if (isOut) {
@@ -234,8 +234,9 @@ class InventoryDocumentService extends BaseService {
       if (typeof data.tableNumber === 'string' && data.tableNumber.trim()) {
         documentData.tableNumber = data.tableNumber.trim().slice(0, 20);
       }
-      // Estado de cobro: por defecto pagada (tienda). El restaurante la abre "por cobrar".
-      if (data.paymentStatus === 'pending' || (isOut && kitchenStatus != null)) {
+      // Toda venta requiere confirmación explícita del cobro; las compras no
+      // representan dinero recibido por caja.
+      if (isOut || data.paymentStatus === 'pending') {
         documentData.paymentStatus = 'pending';
         documentData.paidAt = null;
       } else {

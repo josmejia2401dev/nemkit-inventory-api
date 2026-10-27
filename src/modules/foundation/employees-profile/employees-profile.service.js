@@ -23,7 +23,6 @@ class EmployeesProfileService {
       status: employee.status,
       security: {
         lastLoginAt: employee.security?.lastLoginAt ?? null,
-        mustChangePassword: employee.security?.mustChangePassword ?? false,
       },
       createdAt: employee.createdAt,
       updatedAt: employee.updatedAt,
@@ -46,7 +45,10 @@ class EmployeesProfileService {
       throw HttpError.badRequest('Current password is incorrect');
     }
     const passwordHash = await hashPassword(newPassword);
-    await employeesService.updateById(employeeId, { passwordHash }, employeeId);
+    await employeesService.updateById(employeeId, {
+      passwordHash,
+      'security.mustChangePassword': false,
+    }, employeeId);
   }
 }
 

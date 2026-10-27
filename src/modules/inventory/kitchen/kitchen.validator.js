@@ -1,10 +1,10 @@
 'use strict';
 
 const { createValidator } = require('nemkit');
-const { KITCHEN_STATUSES } = require('../inventory.constants');
+const { ORDER_STATUSES } = require('../inventory.constants');
 
-const kitchenStatusSchema = createValidator({
-  kitchenStatus: { type: 'string', required: true, enum: KITCHEN_STATUSES },
+const orderStatusSchema = createValidator({
+  orderStatus: { type: 'string', required: true, enum: ORDER_STATUSES },
 });
 
-module.exports = { kitchenStatusSchema };
+module.exports = { orderStatusSchema };

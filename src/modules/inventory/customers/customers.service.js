@@ -25,7 +25,7 @@ class CustomersService extends ContactService {
 
   /**
    * Búsqueda rápida de cliente por celular o documento (identificación en
-   * mostrador). Disponible para cualquier empleado del tenant. Coincidencia
+   * mostrador). Disponible para cualquier empleado del empresa. Coincidencia
    * exacta por teléfono/documento y, si no hay, por prefijo.
    */
   async lookup(userId, term) {

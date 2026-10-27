@@ -3,7 +3,7 @@
 /**
  * Cargos operativos de un empleado dentro de una empresa. El empleado se
  * autentica contra su propia colección (foundation_employees), pero opera sobre
- * los datos de la empresa (tenant). El cargo define sus permisos (roles de JWT).
+ * los datos de la empresa (empresa). El cargo define sus permisos (roles de JWT).
  */
 const EMPLOYEE_ROLE = Object.freeze({
   ADMIN: 'admin',

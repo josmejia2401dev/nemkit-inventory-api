@@ -1,7 +1,7 @@
 'use strict';
 
 const { createValidator } = require('nemkit');
-const { CANCEL_REASONS } = require('../inventory.constants');
+const { CANCEL_REASONS, ORDER_STATUSES } = require('../inventory.constants');
 
 const saleSchema = createValidator({
   customerId: { type: 'number', required: true, min: 1 },
@@ -17,4 +17,8 @@ const cancelSchema = createValidator({
   note: { type: 'string', trim: true, maxLength: 300 },
 });
 
-module.exports = { saleSchema, cancelSchema };
+const orderStatusSchema = createValidator({
+  orderStatus: { type: 'string', required: true, enum: ORDER_STATUSES },
+});
+
+module.exports = { saleSchema, cancelSchema, orderStatusSchema };

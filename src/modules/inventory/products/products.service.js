@@ -32,6 +32,10 @@ class ProductsService extends BaseService {
     return this.repository.findSummariesByIds(userId, productIds);
   }
 
+  findActiveSummariesByIds(userId, productIds) {
+    return this.repository.findActiveSummariesByIds(userId, productIds);
+  }
+
   findActiveForStockChange(userId, productIds, session = null) {
     return this.repository.findActiveForStockChange(userId, productIds, session);
   }
@@ -310,7 +314,7 @@ class ProductsService extends BaseService {
   /**
    * Valida la receta de un plato. La receta es OPCIONAL: puede venir vacía o sin
    * definir (el plato se vende sin descontar insumos). Si trae ítems, cada insumo
-   * debe existir (tipo ingredient o simple, activo, del mismo tenant) con cantidad
+   * debe existir (tipo ingredient o simple, activo, del mismo empresa) con cantidad
    * positiva. No se permiten sub-recetas (un insumo no puede ser prepared);
    * `selfId` evita que un plato se use a sí mismo como insumo.
    */

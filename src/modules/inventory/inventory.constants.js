@@ -50,8 +50,6 @@ const ORDER_STATUS = Object.freeze({
   PENDING: 'pending',
   PREPARING: 'preparing',
   READY: 'ready',
-  SERVED: 'served',
-  PICKED_UP: 'picked_up',
   ON_ROUTE: 'on_route',
   DELIVERED: 'delivered',
   CANCELLED: 'cancelled',
@@ -59,8 +57,8 @@ const ORDER_STATUS = Object.freeze({
 
 /** Estado de cobro de una venta. */
 const PAYMENT_STATUS = Object.freeze({
-  PAID: 'paid',       // cobrada (tienda al instante; restaurante tras cobrar)
-  PENDING: 'pending', // pedido abierto por cobrar (restaurante)
+  PAID: 'paid',       // cobrada (venta de mostrador o cobro registrado)
+  PENDING: 'pending', // venta de restaurante o domicilio pendiente de cobro
 });
 
 /**
@@ -97,15 +95,6 @@ const KITCHEN_STATUS = Object.freeze({
   PENDING: ORDER_STATUS.PENDING,
   PREPARING: ORDER_STATUS.PREPARING,
   READY: ORDER_STATUS.READY,
-  SERVED: ORDER_STATUS.SERVED,
-});
-
-/** Transiciones válidas del estado de cocina. */
-const KITCHEN_TRANSITIONS = Object.freeze({
-  pending: ['preparing', 'served'],
-  preparing: ['ready', 'served'],
-  ready: ['served'],
-  served: [],
 });
 
 /** Tipos de identificación (Colombia). */
@@ -123,50 +112,34 @@ const EMPLOYEE_STATUS = Object.freeze({
   INACTIVE: 'inactive',
 });
 
-/**
- * Estados del ciclo de vida de un domicilio/pedido.
- *
- * Un pedido es UNA sola línea de estados. Los tres primeros (pending, preparing,
- * ready) son "del pedido" y los dicta la cocina (se sincronizan desde el tablero
- * de cocina). Los cuatro siguientes son "de reparto" y los mueve el domiciliario.
- */
+/** Estados logísticos compartidos por restaurantes y tiendas. */
 const DELIVERY_STATUS = Object.freeze({
-  // Fase de cocina (compartida con la comanda; la mueve la cocina).
   PENDING: ORDER_STATUS.PENDING,       // recibido
-  PREPARING: ORDER_STATUS.PREPARING,   // cocinando
+  PREPARING: ORDER_STATUS.PREPARING,   // preparación del pedido
   READY: ORDER_STATUS.READY,           // listo para recoger
-  // Fase de reparto (solo el domiciliario).
-  PICKED_UP: ORDER_STATUS.PICKED_UP,   // recogido por el domiciliario
   ON_ROUTE: ORDER_STATUS.ON_ROUTE,     // en camino
   DELIVERED: ORDER_STATUS.DELIVERED,   // entregado
   CANCELLED: ORDER_STATUS.CANCELLED,   // cancelado
 });
 
-/**
- * Transiciones de estado permitidas en la fase de REPARTO. La cocina maneja
- * pending→preparing→ready por su cuenta (sincronización), así que aquí solo se
- * modela lo que puede hacer el domiciliario de 'ready' en adelante.
- */
+/** Secuencia logística común; quién mueve cada estado depende del negocio. */
 const DELIVERY_TRANSITIONS = Object.freeze({
-  // Flujo canónico (restaurante): la cocina lleva pending→preparing→ready; el
-  // domiciliario SOLO puede recoger cuando está 'ready'. En tienda (sin cocina)
-  // el servicio permite recoger directo desde 'pending' (ver changeStatus).
-  pending: ['cancelled'],
-  preparing: ['cancelled'],
-  ready: ['picked_up', 'cancelled'],
-  picked_up: ['on_route', 'cancelled'],
+  pending: ['preparing', 'cancelled'],
+  preparing: ['ready', 'cancelled'],
+  ready: ['on_route', 'cancelled'],
   on_route: ['delivered', 'cancelled'],
   delivered: [],
   cancelled: [],
 });
 
 /** Estados del domicilio que mueve el domiciliario (fase de reparto). */
-const DELIVERY_COURIER_STATUSES = Object.freeze(['picked_up', 'on_route', 'delivered', 'cancelled']);
+const DELIVERY_COURIER_STATUSES = Object.freeze(['on_route', 'delivered', 'cancelled']);
 
 /**
  * Mapeo cocina → domicilio: al cambiar el estado de cocina de una venta con
  * domicilio asociado, el domicilio se mueve al mismo punto de la fase de pedido.
- * 'served' (cocina) no aplica al domicilio (servir en mesa ≠ reparto).
+ * La cocina o el vendedor avanza preparación; el domiciliario toma la entrega
+ * desde 'ready' y reporta 'on_route' y 'delivered'.
  */
 const KITCHEN_TO_DELIVERY_STATUS = Object.freeze({
   pending: 'pending',
@@ -275,7 +248,6 @@ module.exports = {
   BUSINESS_TYPES,
   KITCHEN_STATUS,
   KITCHEN_STATUSES,
-  KITCHEN_TRANSITIONS,
   LOYALTY_TIER,
   LOYALTY_TIERS,
   LOYALTY_TIER_RULES,

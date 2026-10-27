@@ -36,21 +36,18 @@ class EmployeesService extends BaseService {
     this.notFoundMessage = 'Employee not found';
   }
 
-  async list(tenantId, query = {}) {
+  async list(userId, query = {}) {
     const { page, limit } = pagination(query);
-    const filter = { tenantId, recordStatus: RECORD_STATUS.ACTIVE };
+    const filter = { userId, recordStatus: RECORD_STATUS.ACTIVE };
+    const status = query.status ?? EMPLOYEE_STATUS.ACTIVE;
+
+    if (status !== 'all') filter.status = status;
 
     if (query.role !== undefined) {
       if (!EMPLOYEE_ROLES.includes(query.role)) {
         throw HttpError.badRequest(`role must be one of: ${EMPLOYEE_ROLES.join(', ')}`);
       }
       filter.role = query.role;
-    }
-    if (query.status !== undefined) {
-      if (!EMPLOYEE_STATUSES.includes(query.status)) {
-        throw HttpError.badRequest(`status must be one of: ${EMPLOYEE_STATUSES.join(', ')}`);
-      }
-      filter.status = query.status;
     }
     if (typeof query.search === 'string' && query.search.trim()) {
       if (query.search.length > 100) throw HttpError.badRequest('search must be at most 100 characters');
@@ -65,8 +62,8 @@ class EmployeesService extends BaseService {
   }
 
   /** Lista ligera de empleados activos para selectores (quién vende, quién entrega). */
-  async options(tenantId, query = {}) {
-    const filter = { tenantId, status: EMPLOYEE_STATUS.ACTIVE, recordStatus: RECORD_STATUS.ACTIVE };
+  async options(userId, query = {}) {
+    const filter = { userId, status: EMPLOYEE_STATUS.ACTIVE, recordStatus: RECORD_STATUS.ACTIVE };
     if (query.role !== undefined) {
       if (!EMPLOYEE_ROLES.includes(query.role)) {
         throw HttpError.badRequest(`role must be one of: ${EMPLOYEE_ROLES.join(', ')}`);
@@ -77,37 +74,50 @@ class EmployeesService extends BaseService {
     return employees.map((e) => ({ id: e._id, name: e.name, role: e.role }));
   }
 
-  async getOwned(id, tenantId) {
+  async getOwned(id, userId) {
     const employeeId = positiveInteger(id, 'employeeId');
-    const employee = await this.findOne({ _id: employeeId, tenantId, recordStatus: RECORD_STATUS.ACTIVE });
+    const employee = await this.findOne({ _id: employeeId, userId, recordStatus: RECORD_STATUS.ACTIVE });
     if (!employee) throw HttpError.notFound('Employee not found');
     return employee;
   }
 
+  /** Snapshot para trazabilidad de pagos, incluso si el empleado está inactivo. */
+  async getPaymentSnapshot(id, userId) {
+    const employee = await this.getOwned(id, userId);
+    return {
+      employeeId: employee._id,
+      employeeSnapshot: {
+        name: employee.name,
+        documentType: employee.documentType || '',
+        documentNumber: employee.documentNumber || '',
+      },
+    };
+  }
+
   /**
-   * Resuelve el tenant (empresa) de un empleado autenticado. Usado por el
+   * Resuelve el empresa (empresa) de un empleado autenticado. Usado por el
    * scoping: garantiza que el empleado siga activo y asociado.
    */
-  async resolveTenantForAccount(employeeId) {
+  async resolveUserForAccount(employeeId) {
     const employee = await this.repository.findActiveSelf(positiveInteger(employeeId, 'employeeId'));
     if (!employee) throw HttpError.forbidden('This employee account is inactive or no longer associated');
-    return employee.tenantId;
+    return employee.userId;
   }
 
   /** Responsable de una operación (venta/compra/movimiento). */
-  async resolveResponsible(tenantId, employeeId, session = null) {
+  async resolveResponsible(userId, employeeId, session = null) {
     if (employeeId == null || employeeId === '') {
       return { employeeId: null, employeeSnapshot: { name: '' } };
     }
     const id = positiveInteger(employeeId, 'employeeId');
-    const employee = await this.repository.findActiveResponsible(tenantId, id, session);
+    const employee = await this.repository.findActiveResponsible(userId, id, session);
     if (!employee) throw HttpError.badRequest('Invalid or inactive employeeId');
     return { employeeId: employee._id, employeeSnapshot: { name: employee.name } };
   }
 
-  async getActiveCourierSnapshot(tenantId, courierId, session = null) {
+  async getActiveCourierSnapshot(userId, courierId, session = null) {
     const id = positiveInteger(courierId, 'courierId');
-    const courier = await this.repository.findActiveCourier(tenantId, id, session);
+    const courier = await this.repository.findActiveCourier(userId, id, session);
     if (!courier) {
       throw HttpError.badRequest('Invalid or inactive courier (must be an active employee with courier role)');
     }
@@ -117,7 +127,7 @@ class EmployeesService extends BaseService {
   /**
    * Crea un empleado con su login propio. Email único global entre empleados.
    */
-  async create(data, tenantId) {
+  async create(data, userId, actorId = userId) {
     const { password, ...employeeData } = data;
     const email = String(employeeData.email ?? '').trim().toLowerCase();
     employeeData.email = email;
@@ -137,11 +147,11 @@ class EmployeesService extends BaseService {
     try {
       const employee = await this.repository.create({
         _id: UniqueNumberUtil.generateRaw(),
-        tenantId,
+        userId,
         ...employeeData,
         passwordHash,
         security: { mustChangePassword: false },
-      }, tenantId);
+      }, actorId);
       return employee;
     } catch (error) {
       if (error?.code === 11000) {
@@ -154,9 +164,9 @@ class EmployeesService extends BaseService {
     }
   }
 
-  async update(id, data, tenantId) {
+  async update(id, data, userId, actorId = userId) {
     const employeeId = positiveInteger(id, 'employeeId');
-    const current = await this.getOwned(employeeId, tenantId);
+    const current = await this.getOwned(employeeId, userId);
     if (!UPDATABLE_FIELDS.some((f) => data[f] !== undefined)) {
       throw HttpError.badRequest('At least one updatable field is required');
     }
@@ -164,7 +174,7 @@ class EmployeesService extends BaseService {
       throw HttpError.badRequest('Invalid employee role');
     }
     try {
-      const employee = await this.updateById(employeeId, data, tenantId);
+      const employee = await this.updateById(employeeId, data, actorId);
       // Si cambia el rol o se inactiva, revocar las sesiones activas del empleado
       // para que un token viejo no conserve permisos o acceso indebidos.
       const roleChanged = data.role !== undefined && data.role !== current.role;
@@ -180,12 +190,29 @@ class EmployeesService extends BaseService {
   }
 
   /** Baja lógica del empleado: pierde acceso al sistema. */
-  async remove(id, tenantId, actorId = tenantId) {
+  async remove(id, userId, actorId = userId) {
     const employeeId = positiveInteger(id, 'employeeId');
-    await this.getOwned(employeeId, tenantId);
+    await this.getOwned(employeeId, userId);
     const employee = await this.softDelete(employeeId, actorId);
     await tokensService.revokeAllSessions(employeeId);
     return employee;
+  }
+
+  async resetPassword(id, userId, newPassword, actorId = userId) {
+    const employeeId = positiveInteger(id, 'employeeId');
+    await this.getOwned(employeeId, userId);
+
+    const passwordHash = await hashPassword(newPassword);
+    await this.updateById(employeeId, {
+      passwordHash,
+      'security.mustChangePassword': false,
+      'security.loginAttempts': 0,
+      'security.lockedUntil': null,
+      'security.passwordResetToken': null,
+      'security.passwordResetExpires': null,
+    }, actorId);
+    await tokensService.revokeAllSessions(employeeId);
+    return { employeeId };
   }
 
   async changePassword(employeeId, newPlainPassword) {
@@ -194,23 +221,34 @@ class EmployeesService extends BaseService {
   }
 
   // ── Consultas para el panel de plataforma (super admin) ────────────────
-  async listByTenant(tenantId) {
+  async listByUser(userId, { includeDeleted = false } = {}) {
+    const filter = { userId };
+    if (!includeDeleted) filter.recordStatus = RECORD_STATUS.ACTIVE;
+
     const result = await this.filterAndPaginate(
-      { tenantId, recordStatus: RECORD_STATUS.ACTIVE },
-      { page: 1, limit: 500, sort: { name: 1 } },
+      filter,
+      { page: 1, limit: 500, sort: { name: 1 }, includeDeleted },
     );
     return result.data;
   }
 
-  countByTenant(tenantId) {
-    return this.repository.countDocuments({ tenantId, recordStatus: RECORD_STATUS.ACTIVE });
+  listGlobal(query = {}) {
+    return this.repository.listGlobal(query);
   }
 
-  async countByTenants(tenantIds) {
-    if (!tenantIds.length) return [];
+  globalOverview() {
+    return this.repository.globalOverview();
+  }
+
+  countByUser(userId) {
+    return this.repository.countDocuments({ userId, recordStatus: RECORD_STATUS.ACTIVE });
+  }
+
+  async countByUsers(userIds) {
+    if (!userIds.length) return [];
     return this.repository.aggregate([
-      { $match: { tenantId: { $in: tenantIds }, recordStatus: RECORD_STATUS.ACTIVE } },
-      { $group: { _id: '$tenantId', count: { $sum: 1 } } },
+      { $match: { userId: { $in: userIds }, recordStatus: RECORD_STATUS.ACTIVE } },
+      { $group: { _id: '$userId', count: { $sum: 1 } } },
     ]);
   }
 

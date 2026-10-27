@@ -6,6 +6,7 @@ const { positiveInteger } = require('../validation');
 const { productsService } = require('../products/products.service');
 const { movementsService } = require('../movements/movements.service');
 const { salesService } = require('../sales/sales.service');
+const { employeePaymentsService } = require('../employee-payments/employee-payments.service');
 
 const MAX_RANGE_DAYS = 366;
 
@@ -88,7 +89,47 @@ class ReportsService {
 
   async salesByEmployee(userId, query = {}) {
     const range = dateRange(query);
-    return salesService.reportSalesByEmployee(userId, range);
+    const [sales, payments] = await Promise.all([
+      salesService.reportSalesByEmployee(userId, range),
+      employeePaymentsService.summary(userId, query),
+    ]);
+    const paymentByEmployee = new Map(payments.employees.map((row) => [row.employeeId, row]));
+    const salesEmployees = sales.employees.map((row) => ({
+      ...row,
+      paymentsMade: paymentByEmployee.get(row.employeeId)?.totalPaid ?? 0,
+      paymentCount: paymentByEmployee.get(row.employeeId)?.paymentCount ?? 0,
+    }));
+    const salesEmployeeIds = new Set(salesEmployees.map((row) => row.employeeId));
+    const paymentOnlyEmployees = payments.employees
+      .filter((row) => !salesEmployeeIds.has(row.employeeId))
+      .map((row) => ({
+        employeeId: row.employeeId,
+        employeeName: row.employeeName,
+        salesCount: 0,
+        unitsSold: 0,
+        revenue: 0,
+        collectedValue: 0,
+        pendingValue: 0,
+        collectedInPeriod: 0,
+        collectionsCount: 0,
+        grossProfit: 0,
+        paymentsMade: row.totalPaid,
+        paymentCount: row.paymentCount,
+      }));
+    const employees = [...salesEmployees, ...paymentOnlyEmployees]
+      .sort((a, b) => (b.revenue - a.revenue) || (b.paymentsMade - a.paymentsMade));
+
+    return {
+      ...sales,
+      employees,
+      totals: {
+        ...sales.totals,
+        employeeCount: new Set(employees.map((row) => row.employeeId).filter((id) => id != null)).size,
+        paymentsMade: payments.totals.totalPaid,
+        paymentCount: payments.totals.paymentCount,
+      },
+      payments,
+    };
   }
 
   async cancelledSales(userId, query = {}) {

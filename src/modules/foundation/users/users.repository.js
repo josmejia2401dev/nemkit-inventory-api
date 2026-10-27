@@ -55,7 +55,7 @@ class UsersRepository extends MongoRepository {
       email,
       accountType: ACCOUNT_TYPE.UNASSIGNED_EMPLOYEE,
       employeeId: null,
-      tenantId: null,
+      userId: null,
       recordStatus: RECORD_STATUS.INACTIVE,
     });
     if (session) query = query.session(session);
@@ -69,7 +69,7 @@ class UsersRepository extends MongoRepository {
         _id: id,
         accountType: ACCOUNT_TYPE.UNASSIGNED_EMPLOYEE,
         employeeId: null,
-        tenantId: null,
+        userId: null,
         recordStatus: RECORD_STATUS.INACTIVE,
       },
       { $set: { ...association, updatedBy: actorId } },
@@ -78,12 +78,12 @@ class UsersRepository extends MongoRepository {
     return this.normalizeOutput(doc);
   }
 
-  async disassociateEmployee(id, tenantId, employeeId, actorId, session) {
+  async disassociateEmployee(id, userId, employeeId, actorId, session) {
     const doc = await this.model.findOneAndUpdate(
       {
         ...this._baseFilter(),
         _id: id,
-        tenantId,
+        userId,
         employeeId,
         $or: [
           { accountType: ACCOUNT_TYPE.EMPLOYEE },
@@ -94,7 +94,7 @@ class UsersRepository extends MongoRepository {
         $set: {
           accountType: ACCOUNT_TYPE.UNASSIGNED_EMPLOYEE,
           recordStatus: RECORD_STATUS.INACTIVE,
-          tenantId: null,
+          userId: null,
           employeeId: null,
           roles: ['USER'],
           updatedBy: actorId,
@@ -115,7 +115,7 @@ class UsersRepository extends MongoRepository {
 
   /**
    * Listado GLOBAL de usuarios (uso exclusivo del super admin). No acota por
-   * tenant. Soporta filtro por rol, por tipo (dueños vs empleados) y búsqueda.
+   * empresa. Soporta filtro por rol, por tipo (dueños vs empleados) y búsqueda.
    */
   async listGlobal({ page = 1, limit = 20, search = null, role = null, kind = null } = {}) {
     const criteria = [];
@@ -143,7 +143,7 @@ class UsersRepository extends MongoRepository {
   }
 
   /**
-   * Listado GLOBAL de empresas: cada empresa ES su usuario dueño (tenantId === _id).
+   * Listado GLOBAL de empresas: cada empresa ES su usuario dueño (userId === _id).
    * Un usuario dueño no tiene employeeId.
    */
   async listOwners({ page = 1, limit = 20, search = null } = {}) {
@@ -165,25 +165,25 @@ class UsersRepository extends MongoRepository {
     });
   }
 
-  /** Empleados (usuarios de login) de una empresa/tenant dada. */
-  async listEmployeesOfTenant(tenantId) {
+  /** Empleados (usuarios de login) de una empresa/empresa dada. */
+  async listEmployeesOfUser(userId) {
     const docs = await this.model
-      .find({ tenantId, employeeId: { $ne: null }, ...this._baseFilter() })
+      .find({ userId, employeeId: { $ne: null }, ...this._baseFilter() })
       .sort({ createdAt: 1 })
       .lean();
     return docs.map((d) => this.normalizeOutput(d));
   }
 
-  /** Cuenta usuarios de un tenant (dueño + empleados). */
-  countByTenant(tenantId) {
-    return this.model.countDocuments({ tenantId, ...this._baseFilter() });
+  /** Cuenta usuarios de un empresa (dueño + empleados). */
+  countByUser(userId) {
+    return this.model.countDocuments({ userId, ...this._baseFilter() });
   }
 
-  countByTenants(tenantIds) {
-    if (!tenantIds.length) return Promise.resolve([]);
+  countByUsers(userIds) {
+    if (!userIds.length) return Promise.resolve([]);
     const aggregation = this.model.aggregate([
-      { $match: { tenantId: { $in: tenantIds }, ...this._baseFilter() } },
-      { $group: { _id: '$tenantId', count: { $sum: 1 } } },
+      { $match: { userId: { $in: userIds }, ...this._baseFilter() } },
+      { $group: { _id: '$userId', count: { $sum: 1 } } },
     ]);
     return applyMongoTimeout(aggregation, this.queryTimeoutMs);
   }

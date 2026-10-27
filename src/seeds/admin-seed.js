@@ -25,11 +25,11 @@ async function seedAdminUser() {
   const count = await User.countDocuments();
 
   const legacyPlatformUsers = await User.find({ roles: 'SUPERADMIN', accountType: null })
-    .select('_id tenantId employeeId companyName roles')
+    .select('_id userId employeeId companyName roles')
     .lean();
   for (const user of legacyPlatformUsers) {
     const isCompanyOwner = user.employeeId == null
-      && user.tenantId === user._id
+      && ((user.userId ?? user._id) === user._id)
       && ((user.roles ?? []).includes('ADMIN') || Boolean(user.companyName));
     await User.updateOne({ _id: user._id, accountType: null }, {
       $set: { accountType: isCompanyOwner ? ACCOUNT_TYPE.COMPANY_OWNER : ACCOUNT_TYPE.SUPERADMIN },
@@ -57,9 +57,8 @@ async function seedAdminUser() {
     const superAdminId = UniqueNumberUtil.generateRaw();
     await User.create({
       _id: superAdminId,
-      // El super admin no tiene empresa propia; su tenant es él mismo por
-      // consistencia del esquema, pero no se usa para datos de inventario.
-      tenantId: superAdminId,
+      // El superadmin de plataforma no está asociado a una empresa.
+      userId: null,
       fullName,
       email,
       passwordHash,
@@ -82,7 +81,7 @@ async function seedAdminUser() {
     const accountType = existing.accountType
       ?? (existing.employeeId != null
         ? ACCOUNT_TYPE.EMPLOYEE
-        : existing.tenantId === existing._id
+        : existing.userId === existing._id
           ? ACCOUNT_TYPE.COMPANY_OWNER
           : ACCOUNT_TYPE.SUPERADMIN);
     await User.updateOne({ _id: existing._id }, {

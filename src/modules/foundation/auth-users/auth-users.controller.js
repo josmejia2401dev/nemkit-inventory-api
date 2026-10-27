@@ -2,20 +2,39 @@
 
 const { success } = require('nemkit');
 const { authService } = require('./auth-users.service');
+const {
+  registerSchema,
+  loginSchema,
+  refreshSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} = require('./auth-users.validator');
+
+function check(schema, req, res) {
+  const result = schema.check(req.body ?? {}, req);
+  if (result.errorResponse) {
+    res.status(400).json(result.errorResponse);
+    return null;
+  }
+  return result.sanitized;
+}
 
 class AuthController {
   constructor() { this.service = authService; }
 
   async register(req, res, next) {
     try {
-      const result = await this.service.register(req.body, this.#device(req));
+      const payload = check(registerSchema, req, res);
+      if (!payload) return;
+      const result = await this.service.register(payload, this.#device(req));
       return success(res, result, 'Registration successful', 201);
     } catch (err) { next(err); }
   }
 
   async login(req, res, next) {
     try {
-      const { email, password } = req.body;
+      const { email, password } = check(loginSchema, req, res) ?? {};
+      if (!email || !password) return;
       const result = await this.service.login(email, password, this.#device(req));
       return success(res, result, 'Login successful');
     } catch (err) { next(err); }
@@ -23,7 +42,9 @@ class AuthController {
 
   async refresh(req, res, next) {
     try {
-      const result = await this.service.refresh(req.body.refreshToken, this.#device(req));
+      const payload = check(refreshSchema, req, res);
+      if (!payload) return;
+      const result = await this.service.refresh(payload.refreshToken, this.#device(req));
       return success(res, result, 'Token refreshed');
     } catch (err) { next(err); }
   }
@@ -38,14 +59,18 @@ class AuthController {
 
   async forgotPassword(req, res, next) {
     try {
-      const result = await this.service.forgotPassword(req.body.email);
+      const payload = check(forgotPasswordSchema, req, res);
+      if (!payload) return;
+      const result = await this.service.forgotPassword(payload.email);
       return success(res, result, 'Request processed');
     } catch (err) { next(err); }
   }
 
   async resetPassword(req, res, next) {
     try {
-      const { token, newPassword } = req.body;
+      const payload = check(resetPasswordSchema, req, res);
+      if (!payload) return;
+      const { token, newPassword } = payload;
       const result = await this.service.resetPassword(token, newPassword);
       return success(res, result, 'Password reset successful');
     } catch (err) { next(err); }

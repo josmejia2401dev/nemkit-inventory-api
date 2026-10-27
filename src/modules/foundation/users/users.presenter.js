@@ -26,7 +26,7 @@ function presentPlatformUser(user, companyName = '', companyBusinessType = null)
     fullName: user.fullName,
     email: user.email,
     roles: user.roles ?? [],
-    tenantId: user.tenantId ?? null,
+    userId: user.userId ?? null,
     companyName: companyName || user.companyName || '',
     businessType: accountType === ACCOUNT_TYPE.EMPLOYEE
       ? companyBusinessType ?? user.businessType ?? 'retail'

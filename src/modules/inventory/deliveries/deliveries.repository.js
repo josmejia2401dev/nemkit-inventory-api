@@ -15,6 +15,14 @@ class DeliveriesRepository extends MongoRepository {
     return this.normalizeOutput(delivery);
   }
 
+  findSaleSummaries(userId, saleIds) {
+    return this._applyTimeout(this.model.find({
+      userId,
+      saleId: { $in: saleIds },
+      recordStatus: RECORD_STATUS.ACTIVE,
+    }).select('saleId status courierSnapshot.name').lean());
+  }
+
   async dashboardMetrics(userId) {
     const baseFilter = { userId, recordStatus: RECORD_STATUS.ACTIVE };
     const [byStatus, average] = await Promise.all([
@@ -104,6 +112,7 @@ class DeliveriesRepository extends MongoRepository {
       recordStatus: RECORD_STATUS.ACTIVE,
     }));
   }
+
 }
 
 module.exports = { DeliveriesRepository };

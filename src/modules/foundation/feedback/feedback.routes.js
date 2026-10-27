@@ -8,7 +8,7 @@ const router = express.Router();
 
 // Cualquier usuario autenticado puede enviar un reporte.
 router.post('/', c.create.bind(c));
-// Solo el super admin ve y gestiona todos los reportes (transversal, sin tenant).
+// Solo el super admin ve y gestiona todos los reportes (transversal, sin empresa).
 router.get('/', requireRole('SUPERADMIN'), c.list.bind(c));
 router.put('/:id/status', requireRole('SUPERADMIN'), c.changeStatus.bind(c));
 

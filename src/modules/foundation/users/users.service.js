@@ -17,7 +17,7 @@ class UsersService extends BaseService {
   }
 
   /**
-   * Registro público: crea el dueño de una cuenta. Su tenant es él mismo,
+   * Registro público: crea el dueño de una cuenta. Su empresa es él mismo,
    * de modo que se convierte en el silo de datos de su propia empresa.
    */
   async create(payload, userId = null) {
@@ -31,7 +31,7 @@ class UsersService extends BaseService {
       return await this.repository.create(
         {
           _id: ownerId,
-          tenantId: ownerId,
+          userId: ownerId,
           accountType: ACCOUNT_TYPE.COMPANY_OWNER,
           fullName: payload.fullName,
           email,
@@ -56,8 +56,8 @@ class UsersService extends BaseService {
     if (typeof payload.password !== 'string' || payload.password.length < 6) {
       throw HttpError.badRequest('password must be at least 6 characters');
     }
-    if (!Number.isInteger(payload.tenantId) || payload.tenantId < 1) {
-      throw HttpError.badRequest('tenantId must be a positive integer');
+    if (!Number.isInteger(payload.userId) || payload.userId < 1) {
+      throw HttpError.badRequest('userId must be a positive integer');
     }
     if (!Number.isInteger(payload.employeeId) || payload.employeeId < 1) {
       throw HttpError.badRequest('employeeId must be a positive integer');
@@ -75,7 +75,7 @@ class UsersService extends BaseService {
         passwordHash,
         roles: payload.roles,
         accountType: ACCOUNT_TYPE.EMPLOYEE,
-        tenantId: payload.tenantId,
+        userId: payload.userId,
         employeeId: payload.employeeId,
         security: { mustChangePassword: false },
       }, actorId, session);
@@ -111,7 +111,7 @@ class UsersService extends BaseService {
     const user = await this.repository.associateUnassignedEmployee(id, {
       accountType: ACCOUNT_TYPE.EMPLOYEE,
       recordStatus: RECORD_STATUS.ACTIVE,
-      tenantId: association.tenantId,
+      userId: association.userId,
       employeeId: association.employeeId,
       roles: association.roles,
     }, actorId, session);
@@ -119,8 +119,8 @@ class UsersService extends BaseService {
     return user;
   }
 
-  async disassociateEmployee(id, tenantId, employeeId, actorId, session) {
-    const user = await this.repository.disassociateEmployee(id, tenantId, employeeId, actorId, session);
+  async disassociateEmployee(id, userId, employeeId, actorId, session) {
+    const user = await this.repository.disassociateEmployee(id, userId, employeeId, actorId, session);
     if (!user) throw HttpError.conflict('This employee account is no longer associated with this company');
     return user;
   }
@@ -133,9 +133,9 @@ class UsersService extends BaseService {
   // ── Operaciones de plataforma (super admin, globales) ──────────────────
   listGlobal(options) { return this.repository.listGlobal(options); }
   listOwners(options) { return this.repository.listOwners(options); }
-  listEmployeesOfTenant(tenantId) { return this.repository.listEmployeesOfTenant(tenantId); }
-  countByTenant(tenantId) { return this.repository.countByTenant(tenantId); }
-  countByTenants(tenantIds) { return this.repository.countByTenants(tenantIds); }
+  listEmployeesOfUser(userId) { return this.repository.listEmployeesOfUser(userId); }
+  countByUser(userId) { return this.repository.countByUser(userId); }
+  countByUsers(userIds) { return this.repository.countByUsers(userIds); }
   findByIds(ids) { return this.repository.findByIds(ids); }
 
   async changePassword(userId, newPlainPassword) {

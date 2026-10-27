@@ -13,6 +13,8 @@ const UserSchema = applyPlatformSchema({
   companyName:  { type: String, trim: true, default: '', maxlength: 160 },
   // Tipo de negocio del dueño: activa funciones específicas (p. ej. cocina).
   businessType: { type: String, enum: ['retail', 'restaurant'], default: 'retail' },
+  // Usuario dueño de la empresa asociada; null para cuentas sin empresa.
+  userId:       { type: Number, default: null, index: true },
   // Empleado vinculado (si el usuario es un acceso creado para un empleado).
   employeeId:   { type: Number, default: null, index: true },
   security: {
@@ -24,7 +26,7 @@ const UserSchema = applyPlatformSchema({
     passwordResetToken: { type: String, default: null, select: false },
     passwordResetExpires: { type: Date, default: null, select: false },
   },
-}, { tenant: true });
+});
 
 // Email único entre usuarios no eliminados. Parcial para permitir reutilizar el
 // email de una cuenta dada de baja lógicamente, sin chocar con el borrado suave.

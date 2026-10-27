@@ -1,9 +1,9 @@
 'use strict';
 
-const { created, success } = require('nemkit');
+const { created, success, HttpError } = require('nemkit');
 const { InventoryDocumentController } = require('../documents/document.controller');
 const { salesService } = require('./sales.service');
-const { saleSchema, cancelSchema } = require('./sales.validator');
+const { saleSchema, cancelSchema, orderStatusSchema } = require('./sales.validator');
 
 class SalesController extends InventoryDocumentController {
   async create(req, res, next) {
@@ -18,13 +18,11 @@ class SalesController extends InventoryDocumentController {
       if (req.body?.delivery && typeof req.body.delivery === 'object') {
         sanitized.delivery = req.body.delivery;
       }
-      // Restaurante: la venta entra a cocina como comanda y queda "por cobrar"
-      // hasta que se registre el pago al final.
+      // Restaurante: la venta entra a cocina como comanda.
       const hasRestaurantTable = typeof sanitized.tableNumber === 'string'
         && sanitized.tableNumber.trim().length > 0;
       if (req.user.businessType === 'restaurant' || hasRestaurantTable) {
         sanitized.kitchenStatus = 'pending';
-        sanitized.paymentStatus = 'pending';
       }
       return created(res, await this.service.create(sanitized, req.user.id));
     } catch (error) {
@@ -32,10 +30,30 @@ class SalesController extends InventoryDocumentController {
     }
   }
 
-  /** Registra el cobro de una venta "por cobrar" (restaurante). */
+  /** Registra el cobro de una venta pendiente. */
   async pay(req, res, next) {
     try {
       return success(res, await this.service.pay(req.params.id, req.user.id));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async changeStatus(req, res, next) {
+    try {
+      const { errorResponse, sanitized } = orderStatusSchema.check(req.body ?? {}, req);
+      if (errorResponse) return res.status(400).json(errorResponse);
+      const roles = req.user?.roles ?? [];
+      if (!roles.includes('ADMIN') && !roles.includes('SELLER')) {
+        throw HttpError.forbidden('Only the administrator or seller can update store order status');
+      }
+      return success(res, await this.service.advanceOrder(
+        req.params.id,
+        req.user.id,
+        sanitized.orderStatus,
+        req.user.businessType,
+        roles,
+      ));
     } catch (error) {
       next(error);
     }
@@ -58,7 +76,7 @@ class SalesController extends InventoryDocumentController {
       const result = await this.service.voidSale(req.params.id, req.user.id, {
         reason: sanitized.reason,
         note: sanitized.note ?? '',
-        actorId: req.user.userId ?? req.user.id,
+        actorId: req.user.actorId ?? req.user.id,
         actorName: req.user.fullName ?? '',
       });
       return success(res, result, 'Pedido cancelado');
