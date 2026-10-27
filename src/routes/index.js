@@ -21,14 +21,13 @@ const purchasesRoutes = require('../modules/inventory/purchases/purchases.routes
 const salesRoutes = require('../modules/inventory/sales/sales.routes');
 const kitchenRoutes = require('../modules/inventory/kitchen/kitchen.routes');
 const reportsRoutes = require('../modules/inventory/reports/reports.routes');
-const employeesRoutes = require('../modules/inventory/employees/employees.routes');
-const { employeesController } = require('../modules/inventory/employees/employees.controller');
+const employeesRoutes = require('../modules/foundation/employees/employees.routes');
+const { employeesController } = require('../modules/foundation/employees/employees.controller');
 const deliveriesRoutes = require('../modules/inventory/deliveries/deliveries.routes');
 const tablesRoutes = require('../modules/inventory/tables/tables.routes');
 const feedbackRoutes = require('../modules/foundation/feedback/feedback.routes');
 const platformRoutes = require('../modules/foundation/platform/platform.routes');
 const notificationsRoutes = require('../modules/foundation/notifications/notifications.routes');
-const platformMembersRoutes = require('../modules/inventory/platform-members/platform-members.routes');
 
 // Conecta los servicios de dominio que colaboran entre micromódulos.
 require('../modules/inventory/inventory.module');
@@ -53,7 +52,6 @@ router.use('/notifications', notificationsRoutes);
 // Administración de PLATAFORMA (super admin): usuarios, empresas, logs, métricas.
 // Global, sin acotar por tenant → va ANTES de scopeToTenant.
 router.use('/platform', platformRoutes);
-router.use('/platform', platformMembersRoutes);
 
 // A partir de aquí, el dominio de inventario opera sobre la empresa (tenant).
 router.use(scopeToTenant);

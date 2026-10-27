@@ -3,7 +3,7 @@
 const { BaseService, HttpError, UniqueNumberUtil, RECORD_STATUS } = require('nemkit');
 const { MovementsRepository } = require('./movements.repository');
 const { productsService } = require('../products/products.service');
-const { employeesService } = require('../employees/employees.service');
+const { employeesService } = require('../../foundation/employees/employees.service');
 const { pagination, positiveInteger, parseDate } = require('../validation');
 const {
   MOVEMENT_TYPE,

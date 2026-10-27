@@ -1,7 +1,7 @@
 'use strict';
 
 const { BaseService, HttpError, RECORD_STATUS, UniqueNumberUtil } = require('nemkit');
-const { employeesService } = require('../employees/employees.service');
+const { employeesService } = require('../../foundation/employees/employees.service');
 const { productsService } = require('../products/products.service');
 const { movementsService } = require('../movements/movements.service');
 const { pagination, positiveInteger, parseDate } = require('../validation');

@@ -2,7 +2,7 @@
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
 const { DeliveriesRepository } = require('./deliveries.repository');
-const { employeesService } = require('../employees/employees.service');
+const { employeesService } = require('../../foundation/employees/employees.service');
 const { pagination, positiveInteger } = require('../validation');
 const {
   DELIVERY_STATUS,

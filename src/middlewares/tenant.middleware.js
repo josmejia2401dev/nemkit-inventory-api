@@ -2,7 +2,7 @@
 
 const { RequestContext, RECORD_STATUS, HttpError } = require('nemkit');
 const { usersService } = require('../modules/foundation/users/users.service');
-const { employeesService } = require('../modules/inventory/employees/employees.service');
+const { employeesService } = require('../modules/foundation/employees/employees.service');
 
 /**
  * Middleware de scoping por cuenta/empresa (tenant).
@@ -22,33 +22,40 @@ const { employeesService } = require('../modules/inventory/employees/employees.s
 async function scopeToTenant(req, _res, next) {
   try {
     const realUserId = req.user.id;
+
+    // ── EMPLEADO: vive en su propia colección (foundation_employees) ──────
+    // El token de empleado lleva employeeId (= su propio id); el de empresa lo
+    // trae en null. Resolvemos la empresa (tenant), que debe estar activa. El
+    // empleado opera sobre los datos de su empresa.
+    if (req.user.employeeId != null) {
+      const tenantId = await employeesService.resolveTenantForAccount(realUserId);
+      const company = await usersService.findById(tenantId);
+      if (!company || company.recordStatus !== RECORD_STATUS.ACTIVE) {
+        throw HttpError.forbidden('The associated company account is unavailable');
+      }
+      req.user.userId = realUserId;      // id real del empleado
+      req.user.id = tenantId;            // scoping del dominio por empresa
+      req.user.tenantId = tenantId;
+      req.user.employeeId = realUserId;  // el empleado ES el responsable
+      req.user.businessType = company.businessType ?? 'retail';
+      RequestContext.setUserId(realUserId);
+      RequestContext.set('tenantId', tenantId);
+      return next();
+    }
+
+    // ── EMPRESA (dueño de cuenta) ─────────────────────────────────────────
     const account = await usersService.findById(realUserId);
     if (!account || account.recordStatus !== RECORD_STATUS.ACTIVE) {
       throw HttpError.forbidden('This user account is inactive');
     }
-
-    // The employee association is the authoritative link to the company.
-    // Older employee accounts can have their own ID in users.tenantId, so
-    // trusting that field would silently show an empty, personal inventory.
-    const tenantId = account.employeeId != null
-      ? await employeesService.resolveTenantForAccount(realUserId, account.employeeId)
-      : account.tenantId ?? realUserId;
-    let tenantAccount = account;
-
-    if (account.employeeId != null) {
-      tenantAccount = await usersService.findById(tenantId);
-      const company = tenantAccount;
-      if (!company || company.recordStatus !== RECORD_STATUS.ACTIVE || company.employeeId != null) {
-        throw HttpError.forbidden('The associated company account is unavailable');
-      }
-    }
+    const tenantId = account.tenantId ?? realUserId;
 
     req.user.userId = realUserId;
     req.user.id = tenantId;
     req.user.tenantId = tenantId;
     req.user.roles = account.roles ?? [];
-    req.user.employeeId = account.employeeId ?? null;
-    req.user.businessType = tenantAccount.businessType ?? 'retail';
+    req.user.employeeId = null;
+    req.user.businessType = account.businessType ?? 'retail';
     RequestContext.setUserId(realUserId);
     RequestContext.set('tenantId', tenantId);
     next();

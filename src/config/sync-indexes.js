@@ -16,7 +16,7 @@ async function syncIndexes() {
     require('../modules/inventory/categories/categories.model'),
     require('../modules/inventory/customers/customers.model'),
     require('../modules/inventory/suppliers/suppliers.model'),
-    require('../modules/inventory/employees/employees.model'),
+    require('../modules/foundation/employees/employees.model'),
     require('../modules/inventory/movements/movements.model'),
     require('../modules/inventory/purchases/purchases.model'),
     require('../modules/inventory/sales/sales.model'),

@@ -6,9 +6,8 @@ const { employeesController: c } = require('./employees.controller');
 
 const router = express.Router();
 
-// La gestión de empleados es exclusiva del administrador de la cuenta.
+// La gestión de empleados es exclusiva del administrador de la empresa.
 router.get('/', c.list.bind(c));
-router.post('/associate', requireRole('ADMIN'), c.associate.bind(c));
 router.post('/', requireRole('ADMIN'), c.create.bind(c));
 router.get('/:id', c.get.bind(c));
 router.put('/:id', requireRole('ADMIN'), c.update.bind(c));

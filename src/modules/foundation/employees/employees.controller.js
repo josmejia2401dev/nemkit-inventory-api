@@ -2,12 +2,7 @@
 
 const { success, created, paginated, createValidator, HttpError } = require('nemkit');
 const { employeesService: service } = require('./employees.service');
-const { associateEmployeeSchema } = require('./employee-association.validator');
-const {
-  EMPLOYEE_ROLES,
-  DOCUMENT_TYPES,
-  EMPLOYEE_STATUSES,
-} = require('../inventory.constants');
+const { EMPLOYEE_ROLES, EMPLOYEE_STATUSES, DOCUMENT_TYPES } = require('./employees.constants');
 
 const fields = {
   name: { type: 'string', trim: true, minLength: 2, maxLength: 160 },
@@ -28,12 +23,6 @@ const createSchema = createValidator({
   password: { type: 'string', required: true, minLength: 6, maxLength: 128 },
 });
 const updateSchema = createValidator(fields);
-
-function validateEmail(email) {
-  if (email !== undefined && email !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw HttpError.badRequest('email must be a valid email address');
-  }
-}
 
 function validatePhoto(photo) {
   if (photo === undefined) return undefined;
@@ -65,80 +54,47 @@ class EmployeesController {
     try {
       const result = await service.list(req.user.id, req.query);
       return paginated(res, result.data, result.pagination);
-    } catch (error) {
-      next(error);
-    }
+    } catch (error) { next(error); }
   }
 
   async options(req, res, next) {
     try {
       return success(res, await service.options(req.user.id, req.query));
-    } catch (error) {
-      next(error);
-    }
+    } catch (error) { next(error); }
   }
 
   async create(req, res, next) {
     try {
       const { errorResponse, sanitized } = createSchema.check(req.body, req);
       if (errorResponse) return res.status(400).json(errorResponse);
-      validateEmail(sanitized.email);
       const photo = validatePhoto(req.body?.photo);
       if (photo !== undefined) sanitized.photo = photo;
       return created(res, await service.create(sanitized, req.user.id));
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async associate(req, res, next) {
-    try {
-      const { errorResponse, sanitized } = associateEmployeeSchema.check(req.body, req);
-      if (errorResponse) return res.status(400).json(errorResponse);
-      return created(res, await service.associateExistingUser(
-        sanitized.email,
-        sanitized.role,
-        req.user.id,
-        req.user.userId ?? req.user.id,
-      ), 'Employee account associated');
-    } catch (error) {
-      next(error);
-    }
+    } catch (error) { next(error); }
   }
 
   async get(req, res, next) {
     try {
       return success(res, await service.getOwned(req.params.id, req.user.id));
-    } catch (error) {
-      next(error);
-    }
+    } catch (error) { next(error); }
   }
 
   async update(req, res, next) {
     try {
       const { errorResponse, sanitized } = updateSchema.check(req.body, req);
       if (errorResponse) return res.status(400).json(errorResponse);
-      validateEmail(sanitized.email);
       const photo = validatePhoto(req.body?.photo);
       if (photo !== undefined) sanitized.photo = photo;
       return success(res, await service.update(req.params.id, sanitized, req.user.id));
-    } catch (error) {
-      next(error);
-    }
+    } catch (error) { next(error); }
   }
 
   async remove(req, res, next) {
     try {
-      await service.remove(
-        req.params.id,
-        req.user.id,
-        req.user.userId ?? req.user.id,
-      );
-      return success(res, null, 'Employee account disassociated');
-    } catch (error) {
-      next(error);
-    }
+      await service.remove(req.params.id, req.user.id, req.user.userId ?? req.user.id);
+      return success(res, null, 'Employee removed');
+    } catch (error) { next(error); }
   }
 }
 
-module.exports = { employeesController: new EmployeesController() };
+module.exports = { EmployeesController, employeesController: new EmployeesController() };
