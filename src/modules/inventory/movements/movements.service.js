@@ -71,59 +71,6 @@ class MovementsService extends BaseService {
     };
   }
 
-  async dashboardRecent(userId, limit = 10) {
-    const movements = await this.repository.recent(userId, limit);
-    return movements.map(({ _id, userId: _userId, ...movement }) => ({ id: _id, ...movement }));
-  }
-
-  async dashboardTopSellingProducts(userId, since) {
-    const rows = await this.repository.topSellingProductUnits(userId, since);
-    const productIds = rows.map((row) => row._id);
-    const products = productIds.length
-      ? await productsService.findActiveSummariesByIds(userId, productIds)
-      : [];
-    const productById = new Map(products.map((product) => [product._id, product]));
-
-    return rows.flatMap((row) => {
-      const product = productById.get(row._id);
-      return product
-        ? [{ productId: row._id, name: product.name, sku: product.sku, unitsSold: row.unitsSold }]
-        : [];
-    });
-  }
-
-  async report(userId, { from, toExclusive, type, productId, page, limit }) {
-    const filter = {
-      userId,
-      // Match the main movements listing: hide only deleted ledger entries.
-      // Older movement documents may not have recordStatus set explicitly.
-      recordStatus: { $ne: RECORD_STATUS.DELETED },
-      date: { $gte: from, $lt: toExclusive },
-    };
-    if (type !== undefined) filter.type = type;
-    if (productId !== undefined) filter['items.productId'] = productId;
-
-    const { documents, total } = await this.repository.listForReport(filter, { page, limit });
-    const productIds = [...new Set(documents.flatMap((movement) => movement.items.map((item) => item.productId)))];
-    const products = productIds.length
-      ? await productsService.findSummariesByIds(userId, productIds)
-      : [];
-    const productById = new Map(products.map((product) => [product._id, product]));
-
-    return {
-      data: documents.map(({ _id, userId: _userId, ...movement }) => ({
-        id: _id,
-        ...movement,
-        items: movement.items.map((item) => ({
-          ...item,
-          name: productById.get(item.productId)?.name || `Producto #${item.productId}`,
-          sku: productById.get(item.productId)?.sku || '',
-        })),
-      })),
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-    };
-  }
-
   async create(data, userId) {
     if ([MOVEMENT_TYPE.PURCHASE, MOVEMENT_TYPE.SALE].includes(data.type)) {
       throw HttpError.badRequest('Purchases and sales must be registered through their documents');

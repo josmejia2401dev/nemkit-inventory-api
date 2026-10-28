@@ -32,6 +32,21 @@ class SalesService extends InventoryDocumentService {
       label: 'Sale',
       requiredContact: true,
     });
+    this.statisticsOperations = null;
+  }
+
+  setStatisticsOperations({ recordCustomerPurchase, reverseCustomerPurchase }) {
+    if (typeof recordCustomerPurchase !== 'function' || typeof reverseCustomerPurchase !== 'function') {
+      throw new TypeError('Sales statistics operations must provide customer purchase updates');
+    }
+    this.statisticsOperations = { recordCustomerPurchase, reverseCustomerPurchase };
+  }
+
+  #getStatisticsOperations() {
+    if (!this.statisticsOperations) {
+      throw new Error('Sales statistics operations have not been configured');
+    }
+    return this.statisticsOperations;
   }
 
   async list(userId, query = {}) {
@@ -74,7 +89,8 @@ class SalesService extends InventoryDocumentService {
    */
   async afterCreate({ document, data, contact, items, userId, session }) {
     if (document.paymentStatus === PAYMENT_STATUS.PAID && contact) {
-      await customersService.recordSale(contact, document.total, document.date, userId, session);
+      const { recordCustomerPurchase } = this.#getStatisticsOperations();
+      await recordCustomerPurchase(contact, document.total, document.date, userId, session);
     }
 
     const delivery = data.delivery;
@@ -248,7 +264,8 @@ class SalesService extends InventoryDocumentService {
       // Revertir métricas de fidelización solo si la venta llegó a cobrarse
       // (una venta "por cobrar" nunca sumó al cliente).
       if (sale.paymentStatus === PAYMENT_STATUS.PAID) {
-        await customersService.reverseSale(sale.customerId, sale.total, userId, session);
+        const { reverseCustomerPurchase } = this.#getStatisticsOperations();
+        await reverseCustomerPurchase(sale.customerId, sale.total, userId, session);
       }
 
       return { id, status: DOCUMENT_STATUS.VOID, voidMovementId };
@@ -259,138 +276,8 @@ class SalesService extends InventoryDocumentService {
     return this.repository.hasCustomerSales(userId, customerId);
   }
 
-  async listCustomerHistory(userId, customerId, { page, limit }) {
-    const { sales, total } = await this.repository.listCustomerHistory({
-      userId,
-      customerId,
-      recordStatus: RECORD_STATUS.ACTIVE,
-      status: { $ne: DOCUMENT_STATUS.VOID },
-    }, { page, limit });
-
-    return {
-      sales: sales.map(({ _id, ...sale }) => ({ id: _id, ...sale })),
-      total,
-    };
-  }
-
-  customerAnalytics(userId, customerId) {
-    return this.repository.customerAnalytics(userId, customerId);
-  }
-
   activeKitchenOrderCountsByTable(userId) {
     return this.repository.activeKitchenOrderCountsByTable(userId);
-  }
-
-  async dashboardEmployeeSales(userId, since) {
-    const rows = await this.repository.dashboardEmployeeSales(userId, since);
-    return rows.map((row) => ({
-      employeeId: row.employeeId,
-      employeeName: row.employeeName || `Empleado #${row.employeeId}`,
-      salesCount: row.salesCount,
-      revenue: this.#roundMoney(row.revenue),
-    }));
-  }
-
-  async reportSales(userId, range, groupBy, employeeId = null) {
-    const match = {
-      userId,
-      recordStatus: RECORD_STATUS.ACTIVE,
-      status: { $ne: DOCUMENT_STATUS.VOID },
-      paymentStatus: PAYMENT_STATUS.PAID,
-      date: { $gte: range.from, $lt: range.toExclusive },
-    };
-    if (employeeId !== null) match.employeeId = employeeId;
-
-    const result = await this.repository.reportSales(match, groupBy);
-    return {
-      groupBy,
-      employeeId: match.employeeId ?? null,
-      totals: result[0]?.totals[0] || { salesCount: 0, unitsSold: 0, revenue: 0, grossProfit: 0 },
-      periods: result[0]?.periods || [],
-    };
-  }
-
-  async reportSalesByEmployee(userId, range) {
-    const [rows, collectionRows] = await Promise.all([
-      this.repository.reportSalesByEmployee({
-        userId,
-        recordStatus: RECORD_STATUS.ACTIVE,
-        status: { $ne: DOCUMENT_STATUS.VOID },
-        date: { $gte: range.from, $lt: range.toExclusive },
-      }),
-      this.repository.reportCollectionsByEmployee(userId, range.from, range.toExclusive),
-    ]);
-    const collectionsByEmployee = new Map(collectionRows.map((row) => [row.employeeId, row]));
-    const employees = rows.map((row) => {
-      const collections = collectionsByEmployee.get(row.employeeId);
-      return {
-        employeeId: row.employeeId ?? null,
-        employeeName: row.employeeName || (row.employeeId ? `Empleado #${row.employeeId}` : 'Sin asignar'),
-        salesCount: row.salesCount,
-        unitsSold: row.unitsSold,
-        revenue: this.#roundMoney(row.revenue),
-        collectedValue: this.#roundMoney(row.collectedValue),
-        pendingValue: this.#roundMoney(row.pendingValue),
-        collectedInPeriod: this.#roundMoney(collections?.collectedInPeriod ?? 0),
-        collectionsCount: collections?.collectionsCount ?? 0,
-        grossProfit: this.#roundMoney(row.grossProfit),
-      };
-    });
-    const employeeIds = new Set(employees.map((row) => row.employeeId));
-    for (const row of collectionRows) {
-      if (employeeIds.has(row.employeeId)) continue;
-      employees.push({
-        employeeId: row.employeeId ?? null,
-        employeeName: row.employeeName || (row.employeeId ? `Empleado #${row.employeeId}` : 'Sin asignar'),
-        salesCount: 0,
-        unitsSold: 0,
-        revenue: 0,
-        collectedValue: 0,
-        pendingValue: 0,
-        collectedInPeriod: this.#roundMoney(row.collectedInPeriod),
-        collectionsCount: row.collectionsCount,
-        grossProfit: 0,
-      });
-    }
-
-    return {
-      generatedAt: new Date(),
-      totals: {
-        employeeCount: employees.filter((employee) => employee.employeeId != null).length,
-        salesCount: employees.reduce((sum, employee) => sum + employee.salesCount, 0),
-        unitsSold: employees.reduce((sum, employee) => sum + employee.unitsSold, 0),
-        revenue: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.revenue, 0)),
-        collectedValue: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.collectedValue, 0)),
-        pendingValue: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.pendingValue, 0)),
-        collectedInPeriod: this.#roundMoney(collectionRows.reduce((sum, employee) => sum + employee.collectedInPeriod, 0)),
-        collectionsCount: collectionRows.reduce((sum, employee) => sum + employee.collectionsCount, 0),
-        grossProfit: this.#roundMoney(employees.reduce((sum, employee) => sum + employee.grossProfit, 0)),
-      },
-      employees,
-    };
-  }
-
-  async reportCancelledSales(userId, range, { page = 1, limit = 10 } = {}) {
-    const result = await this.repository.reportCancelledSales({
-      userId,
-      recordStatus: RECORD_STATUS.ACTIVE,
-      status: DOCUMENT_STATUS.VOID,
-      voidedAt: { $gte: range.from, $lt: range.toExclusive },
-    }, { page, limit });
-
-    return {
-      generatedAt: new Date(),
-      totals: {
-        cancellationCount: result.totals?.cancellationCount ?? 0,
-        cancelledValue: this.#roundMoney(result.totals?.cancelledValue ?? 0),
-      },
-      cancellations: result.cancellations.map(({ _id, ...sale }) => ({ id: _id, ...sale })),
-      pagination: { page, limit, total: result.total, totalPages: Math.ceil(result.total / limit) },
-    };
-  }
-
-  #roundMoney(value) {
-    return Math.round((value + Number.EPSILON) * 100) / 100;
   }
 
   /** Lista comandas activas del agregado de ventas. */
@@ -499,7 +386,8 @@ class SalesService extends InventoryDocumentService {
       // Al concretar el cobro, sumar las métricas de fidelización del cliente.
       const customer = await customersService.getActiveForDocument(sale.customerId, userId, session);
       if (customer) {
-        await customersService.recordSale(customer, sale.total, now, userId, session);
+        const { recordCustomerPurchase } = this.#getStatisticsOperations();
+        await recordCustomerPurchase(customer, sale.total, now, userId, session);
       }
 
       return { id, paymentStatus: PAYMENT_STATUS.PAID, paidAt: now };

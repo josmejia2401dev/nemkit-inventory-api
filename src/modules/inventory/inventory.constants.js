@@ -155,32 +155,6 @@ const LOYALTY_TIER = Object.freeze({
   PLATINUM: 'platinum',
 });
 
-/**
- * Umbrales de fidelización. Se asigna el tier más alto cuyo umbral de monto
- * gastado O de número de compras alcance el cliente. Evaluados de mayor a menor.
- */
-const LOYALTY_TIER_RULES = Object.freeze([
-  { tier: LOYALTY_TIER.PLATINUM, minSpent: 2000000, minPurchases: 40 },
-  { tier: LOYALTY_TIER.GOLD, minSpent: 800000, minPurchases: 15 },
-  { tier: LOYALTY_TIER.SILVER, minSpent: 200000, minPurchases: 5 },
-  { tier: LOYALTY_TIER.BRONZE, minSpent: 0, minPurchases: 0 },
-]);
-
-/**
- * Resuelve el nivel de fidelización según monto gastado y número de compras.
- * @param {number} totalSpent
- * @param {number} purchaseCount
- * @returns {string} tier
- */
-function resolveLoyaltyTier(totalSpent = 0, purchaseCount = 0) {
-  for (const rule of LOYALTY_TIER_RULES) {
-    if (totalSpent >= rule.minSpent || purchaseCount >= rule.minPurchases) {
-      return rule.tier;
-    }
-  }
-  return LOYALTY_TIER.BRONZE;
-}
-
 /** Mapeo del cargo del empleado → roles del usuario (login/permisos). */
 const EMPLOYEE_ROLE_TO_USER_ROLES = Object.freeze({
   [EMPLOYEE_ROLE.ADMIN]: ['ADMIN'],
@@ -250,8 +224,6 @@ module.exports = {
   KITCHEN_STATUSES,
   LOYALTY_TIER,
   LOYALTY_TIERS,
-  LOYALTY_TIER_RULES,
-  resolveLoyaltyTier,
   DELIVERY_STATUS,
   DELIVERY_STATUSES,
   DELIVERY_TRANSITIONS,

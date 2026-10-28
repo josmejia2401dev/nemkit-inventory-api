@@ -23,33 +23,6 @@ class DeliveriesRepository extends MongoRepository {
     }).select('saleId status courierSnapshot.name').lean());
   }
 
-  async dashboardMetrics(userId) {
-    const baseFilter = { userId, recordStatus: RECORD_STATUS.ACTIVE };
-    const [byStatus, average] = await Promise.all([
-      applyMongoTimeout(this.model.aggregate([
-        { $match: baseFilter },
-        { $group: { _id: '$status', count: { $sum: 1 } } },
-      ]), this.queryTimeoutMs),
-      applyMongoTimeout(this.model.aggregate([
-        {
-          $match: {
-            ...baseFilter,
-            status: DELIVERY_STATUS.DELIVERED,
-            'timeline.deliveredAt': { $ne: null },
-          },
-        },
-        {
-          $project: {
-            minutes: { $divide: [{ $subtract: ['$timeline.deliveredAt', '$createdAt'] }, 60000] },
-          },
-        },
-        { $group: { _id: null, avgMinutes: { $avg: '$minutes' } } },
-      ]), this.queryTimeoutMs),
-    ]);
-
-    return { byStatus, averageMinutes: average[0]?.avgMinutes ?? null };
-  }
-
   async syncFromKitchen(saleId, userId, kitchenStatus, session) {
     const target = KITCHEN_TO_DELIVERY_STATUS[kitchenStatus];
     if (!target) return;

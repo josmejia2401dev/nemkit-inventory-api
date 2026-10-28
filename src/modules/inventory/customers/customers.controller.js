@@ -37,13 +37,6 @@ class CustomersController {
       next(error);
     }
   }
-  async profile(req, res, next) {
-    try {
-      return success(res, await service.profile(req.params.id, req.user.id, req.query));
-    } catch (error) {
-      next(error);
-    }
-  }
   async update(req, res, next) {
     try {
       const { errorResponse, sanitized } = updateSchema.check(req.body, req);

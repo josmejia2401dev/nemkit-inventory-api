@@ -5,7 +5,6 @@ const router = express.Router();
 router.get('/', c.list.bind(c));
 router.get('/lookup', c.lookup.bind(c));
 router.post('/', c.create.bind(c));
-router.get('/:id/profile', c.profile.bind(c));
 router.get('/:id', c.get.bind(c));
 router.put('/:id', c.update.bind(c));
 router.delete('/:id', c.remove.bind(c));

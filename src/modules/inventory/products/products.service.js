@@ -32,10 +32,6 @@ class ProductsService extends BaseService {
     return this.repository.findSummariesByIds(userId, productIds);
   }
 
-  findActiveSummariesByIds(userId, productIds) {
-    return this.repository.findActiveSummariesByIds(userId, productIds);
-  }
-
   findActiveForStockChange(userId, productIds, session = null) {
     return this.repository.findActiveForStockChange(userId, productIds, session);
   }
@@ -54,63 +50,6 @@ class ProductsService extends BaseService {
 
   hasCategoryReferences(userId, categoryId) {
     return this.repository.hasCategoryReferences(userId, categoryId);
-  }
-
-  dashboardSummary(userId) {
-    return this.repository.dashboardSummary(userId);
-  }
-
-  async stockAlertDetails(userId) {
-    const products = await this.repository.findStockAlertDetails(userId);
-    const categoryIds = [...new Set(products.map((product) => product.categoryId))];
-    const categories = await this.getCategoryService().findNamesByIds(userId, categoryIds);
-    const categoryNames = new Map(categories.map((category) => [category._id, category.name]));
-    const items = products.map((product) => ({
-      id: product._id,
-      name: product.name,
-      sku: product.sku,
-      stock: product.stock,
-      minimumStock: product.minimumStock,
-      categoryName: categoryNames.get(product.categoryId) || '',
-      state: product.stock === 0 ? 'out_of_stock' : 'low_stock',
-    }));
-
-    return {
-      outOfStock: items.filter((product) => product.state === 'out_of_stock').length,
-      lowStock: items.filter((product) => product.state === 'low_stock').length,
-      products: items,
-    };
-  }
-
-  async inventoryReport(userId) {
-    const products = await this.repository.listInventoryReport(userId);
-    const categoryIds = [...new Set(products.map((product) => product.categoryId))];
-    const categories = await this.getCategoryService().findNamesByIds(userId, categoryIds);
-    const categoryNames = new Map(categories.map((category) => [category._id, category.name]));
-    const items = products.map((product) => ({
-      id: product._id,
-      sku: product.sku,
-      name: product.name,
-      categoryName: categoryNames.get(product.categoryId) || 'Sin categoría',
-      status: product.status,
-      stock: product.stock,
-      minimumStock: product.minimumStock,
-      purchasePrice: product.purchasePrice,
-      salePrice: product.salePrice,
-      inventoryCost: this.#roundMoney(product.stock * product.purchasePrice),
-      potentialSales: this.#roundMoney(product.stock * product.salePrice),
-    }));
-
-    return {
-      generatedAt: new Date(),
-      totals: {
-        productCount: items.length,
-        units: items.reduce((sum, item) => sum + item.stock, 0),
-        inventoryCost: this.#roundMoney(items.reduce((sum, item) => sum + item.inventoryCost, 0)),
-        potentialSales: this.#roundMoney(items.reduce((sum, item) => sum + item.potentialSales, 0)),
-      },
-      items,
-    };
   }
 
   async list(userId, query = {}) {
@@ -356,9 +295,6 @@ class ProductsService extends BaseService {
     return normalized;
   }
 
-  #roundMoney(value) {
-    return Math.round((value + Number.EPSILON) * 100) / 100;
-  }
 }
 
 module.exports = {

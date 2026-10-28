@@ -3,8 +3,7 @@
 const { HttpError, RECORD_STATUS } = require('nemkit');
 const { ContactService } = require('../contacts/contacts.service');
 const { CustomersRepository } = require('./customers.repository');
-const { pagination, positiveInteger, escapeRegex } = require('../validation');
-const { resolveLoyaltyTier } = require('../inventory.constants');
+const { positiveInteger, escapeRegex } = require('../validation');
 
 class CustomersService extends ContactService {
   constructor() {
@@ -51,81 +50,11 @@ class CustomersService extends ContactService {
     });
   }
 
-  /**
-   * Perfil 360° del cliente: datos + métricas + historial de compras paginado.
-   */
-  async profile(id, userId, query = {}) {
-    const customer = await this.getOwned(id, userId);
-    const { page, limit } = pagination(query);
-    const customerId = positiveInteger(id, 'customerId');
-    const salesService = this.#salesService();
-    const [history, analytics] = await Promise.all([
-      salesService.listCustomerHistory(
-        userId,
-        customerId,
-        { page, limit },
-      ),
-      salesService.customerAnalytics(userId, customerId),
-    ]);
-
-    return {
-      customer,
-      analytics,
-      history: {
-        data: history.sales,
-        pagination: {
-          page,
-          limit,
-          total: history.total,
-          totalPages: Math.ceil(history.total / limit),
-        },
-      },
-    };
-  }
-
   getActiveForDocument(id, userId, session = null) {
     const customerId = positiveInteger(id, 'customerId');
     return this.repository.findActiveForDocument(customerId, userId, session);
   }
 
-  dashboardMetrics(userId, since) {
-    return this.repository.dashboardMetrics(userId, since);
-  }
-
-  async recordSale(customer, total, date, userId, session = null) {
-    const previousSpent = customer.stats?.totalSpent ?? 0;
-    const previousCount = customer.stats?.purchaseCount ?? 0;
-    const newSpent = this.#roundMoney(previousSpent + total);
-    const newCount = previousCount + 1;
-
-    return this.repository.updateSaleStats(customer._id, userId, {
-      'stats.totalSpent': newSpent,
-      'stats.purchaseCount': newCount,
-      'stats.firstPurchaseAt': customer.stats?.firstPurchaseAt ?? date,
-      'stats.lastPurchaseAt': date,
-      loyaltyTier: resolveLoyaltyTier(newSpent, newCount),
-    }, session);
-  }
-
-  async reverseSale(customerId, total, userId, session = null) {
-    const customer = await this.getActiveForDocument(customerId, userId, session);
-    if (!customer) return false;
-
-    const newSpent = Math.max(0, this.#roundMoney((customer.stats?.totalSpent ?? 0) - total));
-    const newCount = Math.max(0, (customer.stats?.purchaseCount ?? 0) - 1);
-
-    await this.repository.updateSaleStats(customer._id, userId, {
-      'stats.totalSpent': newSpent,
-      'stats.purchaseCount': newCount,
-      loyaltyTier: resolveLoyaltyTier(newSpent, newCount),
-    }, session);
-
-    return true;
-  }
-
-  #roundMoney(value) {
-    return Math.round((value + Number.EPSILON) * 100) / 100;
-  }
 }
 
 module.exports = { customersService: new CustomersService() };

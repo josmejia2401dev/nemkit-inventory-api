@@ -54,27 +54,6 @@ class EmployeePaymentsService extends BaseService {
     };
   }
 
-  async summary(userId, query = {}) {
-    const { from, toExclusive } = range(query);
-    const employeeId = query.employeeId === undefined
-      ? null
-      : positiveInteger(query.employeeId, 'employeeId');
-    const employees = await this.repository.summaryByEmployee(userId, from, toExclusive, employeeId);
-    const rows = employees.map((row) => ({
-      ...row,
-      totalPaid: this.roundMoney(row.totalPaid),
-    }));
-    return {
-      generatedAt: new Date(),
-      totals: {
-        employeeCount: rows.length,
-        paymentCount: rows.reduce((sum, row) => sum + row.paymentCount, 0),
-        totalPaid: this.roundMoney(rows.reduce((sum, row) => sum + row.totalPaid, 0)),
-      },
-      employees: rows,
-    };
-  }
-
   async create(data, userId, actor = {}) {
     if (!EMPLOYEE_PAYMENT_TYPES.includes(data.type)) throw HttpError.badRequest('Invalid payment type');
     if (data.method && !EMPLOYEE_PAYMENT_METHODS.includes(data.method)) throw HttpError.badRequest('Invalid payment method');

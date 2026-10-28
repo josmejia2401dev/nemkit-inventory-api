@@ -2,7 +2,6 @@
 const { MongoRepository, RECORD_STATUS } = require('nemkit');
 const Product = require('./products.model');
 const { PRODUCT_STATUS, PRODUCT_TYPE, MOVEMENT_DIRECTION } = require('../inventory.constants');
-const { applyMongoTimeout } = require('../../../config/mongo-query');
 
 class ProductsRepository extends MongoRepository {
   constructor() {
@@ -25,69 +24,6 @@ class ProductsRepository extends MongoRepository {
   findSummariesByIds(userId, productIds) {
     return this._applyTimeout(this.model.find({ userId, _id: { $in: productIds } })
       .select('_id name sku')
-      .lean());
-  }
-
-  findActiveSummariesByIds(userId, productIds) {
-    return this._applyTimeout(this.model.find({
-      userId,
-      _id: { $in: productIds },
-      status: PRODUCT_STATUS.ACTIVE,
-      recordStatus: RECORD_STATUS.ACTIVE,
-    }).select('_id name sku').lean());
-  }
-
-  async dashboardSummary(userId) {
-    const physicalProductFilter = {
-      userId,
-      type: { $ne: PRODUCT_TYPE.PREPARED },
-      recordStatus: RECORD_STATUS.ACTIVE,
-    };
-    const alertFilter = {
-      ...physicalProductFilter,
-      status: PRODUCT_STATUS.ACTIVE,
-    };
-
-    const [totalProducts, outOfStock, lowStock, value] = await Promise.all([
-      this._applyTimeout(this.model.countDocuments({ ...alertFilter })),
-      this._applyTimeout(this.model.countDocuments({ ...alertFilter, stock: 0 })),
-      this._applyTimeout(this.model.countDocuments({
-        ...alertFilter,
-        $expr: { $and: [{ $gt: ['$stock', 0] }, { $lte: ['$stock', '$minimumStock'] }] },
-      })),
-      applyMongoTimeout(this.model.aggregate([
-        { $match: physicalProductFilter },
-        { $group: { _id: null, value: { $sum: { $multiply: ['$stock', '$purchasePrice'] } } } },
-      ]), this.queryTimeoutMs),
-    ]);
-
-    return {
-      totalProducts,
-      outOfStock,
-      lowStock,
-      inventoryValue: value[0]?.value || 0,
-    };
-  }
-
-  findStockAlertDetails(userId) {
-    return this._applyTimeout(this.model.find({
-      userId,
-      status: PRODUCT_STATUS.ACTIVE,
-      type: { $ne: PRODUCT_TYPE.PREPARED },
-      recordStatus: RECORD_STATUS.ACTIVE,
-      $or: [
-        { stock: 0 },
-        { $expr: { $and: [{ $gt: ['$stock', 0] }, { $lte: ['$stock', '$minimumStock'] }] } },
-      ],
-    }).select('_id name sku stock minimumStock categoryId').sort({ stock: 1, name: 1 }).lean());
-  }
-
-  listInventoryReport(userId) {
-    return this._applyTimeout(this.model.find({
-      userId,
-      recordStatus: RECORD_STATUS.ACTIVE,
-    }).select('_id sku name categoryId purchasePrice salePrice stock minimumStock status')
-      .sort({ name: 1 })
       .lean());
   }
 

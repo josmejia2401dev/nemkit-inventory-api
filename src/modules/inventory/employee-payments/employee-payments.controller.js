@@ -2,6 +2,7 @@
 
 const { success, created, paginated } = require('nemkit');
 const { employeePaymentsService: service } = require('./employee-payments.service');
+const { statisticsService } = require('../statistics/statistics.service');
 const { listQuerySchema, createPaymentSchema } = require('./employee-payments.validator');
 
 class EmployeePaymentsController {
@@ -20,7 +21,7 @@ class EmployeePaymentsController {
     try {
       const { errorResponse, sanitized } = listQuerySchema.check(req.query, req);
       if (errorResponse) return res.status(400).json(errorResponse);
-      return success(res, await service.summary(req.user.id, sanitized));
+      return success(res, await statisticsService.employeePaymentsSummary(req.user.id, sanitized));
     } catch (error) {
       next(error);
     }

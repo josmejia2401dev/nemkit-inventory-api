@@ -160,20 +160,6 @@ class DeliveriesService extends BaseService {
     return this.repository.createFromSale(data, session);
   }
 
-  async dashboardMetrics(userId) {
-    const { byStatus, averageMinutes } = await this.repository.dashboardMetrics(userId);
-    const counts = Object.fromEntries(byStatus.map((row) => [row._id, row.count]));
-
-    return {
-      pending: counts[DELIVERY_STATUS.PENDING] || 0,
-      preparing: counts[DELIVERY_STATUS.PREPARING] || 0,
-      onRoute: counts[DELIVERY_STATUS.ON_ROUTE] || 0,
-      delivered: counts[DELIVERY_STATUS.DELIVERED] || 0,
-      cancelled: counts[DELIVERY_STATUS.CANCELLED] || 0,
-      avgDeliveryMinutes: averageMinutes != null ? Math.round(averageMinutes) : null,
-    };
-  }
-
   /**
    * Anula una entrega ya realizada (el cliente no estaba, no se recibió, etc.):
    * reversa la venta asociada (repone stock, registra movimiento de reversa,
