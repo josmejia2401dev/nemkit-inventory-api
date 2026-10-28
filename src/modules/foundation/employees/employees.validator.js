@@ -5,7 +5,7 @@ const { EMPLOYEE_ROLES, EMPLOYEE_STATUSES, DOCUMENT_TYPES } = require('./employe
 const EMPLOYEE_LIST_STATUSES = [...EMPLOYEE_STATUSES, 'all'];
 
 const fields = {
-  name: { type: 'string', trim: true, minLength: 2, maxLength: 160 },
+  name: { type: 'string', trim: true, minLength: 2, maxLength: 100 },
   documentType: { type: 'string', enum: DOCUMENT_TYPES },
   documentNumber: { type: 'string', trim: true, maxLength: 40 },
   phone: { type: 'string', trim: true, maxLength: 40 },

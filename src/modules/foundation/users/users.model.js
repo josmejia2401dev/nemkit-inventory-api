@@ -4,13 +4,13 @@ const { mongoose, applyPlatformSchema, RECORD_STATUS } = require('nemkit');
 const { ACCOUNT_TYPES } = require('./users.constants');
 
 const UserSchema = applyPlatformSchema({
-  fullName:     { type: String, required: true, trim: true },
-  email:        { type: String, required: true, trim: true, lowercase: true },
+  fullName:     { type: String, required: true, trim: true, maxlength: 100 },
+  email:        { type: String, required: true, trim: true, lowercase: true, maxlength: 254 },
   passwordHash: { type: String, required: true, select: false },
   roles:        [{ type: String, enum: ['SUPERADMIN', 'ADMIN', 'USER', 'CASHIER', 'SELLER', 'COURIER', 'WAREHOUSE', 'WAITER', 'COOK'], default: 'USER' }],
   accountType:  { type: String, enum: ACCOUNT_TYPES, default: null, index: true },
   // Nombre de la empresa (solo lo diligencia el dueño de la cuenta).
-  companyName:  { type: String, trim: true, default: '', maxlength: 160 },
+  companyName:  { type: String, trim: true, default: '', maxlength: 100 },
   // Tipo de negocio del dueño: activa funciones específicas (p. ej. cocina).
   businessType: { type: String, enum: ['retail', 'restaurant'], default: 'retail' },
   // Usuario dueño de la empresa asociada; null para cuentas sin empresa.

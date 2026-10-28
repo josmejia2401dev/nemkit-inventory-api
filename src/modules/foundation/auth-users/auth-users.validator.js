@@ -3,8 +3,8 @@
 const { createValidator } = require('nemkit');
 
 const registerSchema = createValidator({
-  fullName: { type: 'string', required: true, trim: true, minLength: 2, maxLength: 160 },
-  companyName: { type: 'string', trim: true, maxLength: 160 },
+  fullName: { type: 'string', required: true, trim: true, minLength: 2, maxLength: 100 },
+  companyName: { type: 'string', trim: true, maxLength: 100 },
   businessType: { type: 'string', enum: ['retail', 'restaurant'] },
   email: { type: 'email', required: true, trim: true, lowercase: true, maxLength: 254 },
   password: { type: 'string', required: true, minLength: 6, maxLength: 128 },

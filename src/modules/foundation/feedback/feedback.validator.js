@@ -4,8 +4,8 @@ const { createValidator } = require('nemkit');
 const { FEEDBACK_TYPES, FEEDBACK_STATUSES } = require('./feedback.constants');
 
 const feedbackCreateSchema = createValidator({
-  title: { type: 'string', required: true, trim: true, minLength: 3, maxLength: 160 },
-  description: { type: 'string', required: true, trim: true, minLength: 3, maxLength: 4000 },
+  title: { type: 'string', required: true, trim: true, minLength: 3, maxLength: 100 },
+  description: { type: 'string', required: true, trim: true, minLength: 3, maxLength: 1000 },
   type: { type: 'string', enum: FEEDBACK_TYPES },
 });
 

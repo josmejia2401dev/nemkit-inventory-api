@@ -77,7 +77,13 @@ class AuthController {
   }
 
   #device(req) {
-    return { ip: req.ip, userAgent: req.headers['user-agent'] ?? null, audience: req.headers['x-audience'] ?? 'web' };
+    return {
+      ip: typeof req.ip === 'string' ? req.ip.slice(0, 45) : null,
+      userAgent: typeof req.headers['user-agent'] === 'string'
+        ? req.headers['user-agent'].slice(0, 512)
+        : null,
+      audience: req.headers['x-audience'] ?? 'web',
+    };
   }
 }
 

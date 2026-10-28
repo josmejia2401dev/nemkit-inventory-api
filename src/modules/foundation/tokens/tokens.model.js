@@ -5,7 +5,10 @@ const { mongoose, applyPlatformSchema } = require('nemkit');
 const TokenSchema = applyPlatformSchema({
   userId:   { type: Number, required: true },
   audience: { type: String, required: true, enum: ['web', 'app'] },
-  deviceInfo: { ip: { type: String, default: null }, userAgent: { type: String, default: null } },
+  deviceInfo: {
+    ip: { type: String, default: null, maxlength: 45 },
+    userAgent: { type: String, default: null, maxlength: 512 },
+  },
   expiresAt: { type: Date, required: true },
 });
 

@@ -12,10 +12,10 @@ const ProductSchema = applyPlatformSchema({
   userId: { type: Number, required: true, index: true },
   categoryId: { type: Number, required: true, min: 1, index: true },
   type: { type: String, enum: PRODUCT_TYPES, default: PRODUCT_TYPE.SIMPLE, index: true },
-  sku: { type: String, required: true, trim: true, uppercase: true },
-  barcode: { type: String, trim: true, default: '' },
-  name: { type: String, required: true, trim: true, maxlength: 160 },
-  description: { type: String, trim: true, default: '', maxlength: 2000 },
+  sku: { type: String, required: true, trim: true, uppercase: true, maxlength: 64 },
+  barcode: { type: String, trim: true, default: '', maxlength: 64 },
+  name: { type: String, required: true, trim: true, maxlength: 100 },
+  description: { type: String, trim: true, default: '', maxlength: 1000 },
   // Precio de compra OPCIONAL: los platos no se compran (su costo sale de la
   // receta) y algunos negocios no lo registran. Por defecto 0.
   purchasePrice: { type: Number, default: 0, min: 0 },
@@ -27,7 +27,10 @@ const ProductSchema = applyPlatformSchema({
   status: { type: String, enum: PRODUCT_STATUSES, default: PRODUCT_STATUS.ACTIVE },
   // Receta (solo para type = prepared): insumos y cantidades que consume.
   recipe: { type: [RecipeItemSchema], default: [] },
-  image: { url: { type: String, default: '' }, storageKey: { type: String, default: '' } },
+  image: {
+    url: { type: String, default: '', maxlength: 2048 },
+    storageKey: { type: String, default: '', maxlength: 512 },
+  },
 });
 ProductSchema.index({ userId: 1, sku: 1 }, { unique: true, partialFilterExpression: { recordStatus: RECORD_STATUS.ACTIVE } });
 ProductSchema.index({ userId: 1, barcode: 1 }, { unique: true, partialFilterExpression: { recordStatus: RECORD_STATUS.ACTIVE, barcode: { $gt: '' } } });

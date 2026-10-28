@@ -17,8 +17,8 @@ const FeedbackSchema = applyPlatformSchema({
     companyName: { type: String, default: '' },
   },
   type: { type: String, enum: FEEDBACK_TYPES, default: FEEDBACK_TYPE.BUG, index: true },
-  title: { type: String, required: true, trim: true, maxlength: 160 },
-  description: { type: String, required: true, trim: true, maxlength: 4000 },
+  title: { type: String, required: true, trim: true, maxlength: 100 },
+  description: { type: String, required: true, trim: true, maxlength: 1000 },
   status: { type: String, enum: FEEDBACK_STATUSES, default: FEEDBACK_STATUS.OPEN, index: true },
 });
 

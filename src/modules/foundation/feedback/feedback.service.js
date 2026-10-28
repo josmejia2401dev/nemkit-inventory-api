@@ -20,11 +20,11 @@ class FeedbackService extends BaseService {
   async createForUser(data, user) {
     const title = String(data.title ?? '').trim();
     const description = String(data.description ?? '').trim();
-    if (title.length < 3 || title.length > 160) {
-      throw HttpError.badRequest('title must be between 3 and 160 characters');
+    if (title.length < 3 || title.length > 100) {
+      throw HttpError.badRequest('title must be between 3 and 100 characters');
     }
-    if (description.length < 3 || description.length > 4000) {
-      throw HttpError.badRequest('description must be between 3 and 4000 characters');
+    if (description.length < 3 || description.length > 1000) {
+      throw HttpError.badRequest('description must be between 3 and 1000 characters');
     }
     const type = FEEDBACK_TYPES.includes(data.type) ? data.type : 'bug';
 
@@ -50,6 +50,9 @@ class FeedbackService extends BaseService {
   async listAll(query = {}) {
     const page = Math.max(1, parseInt(query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 20));
+    if (query.search !== undefined && (typeof query.search !== 'string' || query.search.length > 100)) {
+      throw HttpError.badRequest('search must be a string of at most 100 characters');
+    }
     const filter = {};
     if (query.status !== undefined) {
       if (!FEEDBACK_STATUSES.includes(query.status)) {

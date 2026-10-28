@@ -3,7 +3,7 @@
 const { createValidator } = require('nemkit');
 
 const fields = {
-  name: { type: 'string', trim: true, minLength: 2, maxLength: 160 },
+  name: { type: 'string', trim: true, minLength: 2, maxLength: 100 },
   document: { type: 'string', trim: true, maxLength: 40 },
   phone: { type: 'string', trim: true, maxLength: 40 },
   email: { type: 'string', trim: true, maxLength: 254 },

@@ -51,8 +51,8 @@ const DeliverySchema = applyPlatformSchema({
 
   // Evidencia de entrega (opcional).
   proof: {
-    photo: { url: { type: String, default: '' }, storageKey: { type: String, default: '' } },
-    signature: { url: { type: String, default: '' }, storageKey: { type: String, default: '' } },
+    photo: { url: { type: String, default: '', maxlength: 2048 }, storageKey: { type: String, default: '', maxlength: 512 } },
+    signature: { url: { type: String, default: '', maxlength: 2048 }, storageKey: { type: String, default: '', maxlength: 512 } },
     observation: { type: String, trim: true, default: '', maxlength: 1000 },
   },
 });

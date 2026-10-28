@@ -5,7 +5,7 @@ const { LOYALTY_TIERS, LOYALTY_TIER } = require('../inventory.constants');
 
 const CustomerSchema = applyPlatformSchema({
   userId: { type: Number, required: true, index: true },
-  name: { type: String, required: true, trim: true, maxlength: 160 },
+  name: { type: String, required: true, trim: true, maxlength: 100 },
   document: { type: String, trim: true, default: '', maxlength: 40 },
   phone: { type: String, trim: true, default: '', maxlength: 40 },
   email: { type: String, trim: true, lowercase: true, default: '', maxlength: 254 },

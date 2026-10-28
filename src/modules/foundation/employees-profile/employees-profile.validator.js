@@ -3,7 +3,7 @@
 const { createValidator } = require('nemkit');
 
 const profileSchema = createValidator({
-  name: { type: 'string', required: true, trim: true, minLength: 2, maxLength: 160 },
+  name: { type: 'string', required: true, trim: true, minLength: 2, maxLength: 100 },
   email: { type: 'email', required: true, trim: true, lowercase: true, maxLength: 254 },
   phone: { type: 'string', trim: true, maxLength: 40 },
 });
