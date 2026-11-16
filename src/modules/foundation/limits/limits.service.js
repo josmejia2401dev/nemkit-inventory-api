@@ -11,28 +11,21 @@ const {
 const User = require('../users/users.model');
 const Employee = require('../employees/employees.model');
 const { EMPLOYEE_STATUS } = require('../employees/employees.constants');
-const Product = require('../../inventory/products/products.model');
-const Customer = require('../../inventory/customers/customers.model');
-const Supplier = require('../../inventory/suppliers/suppliers.model');
 
 const ACTIVE_FILTER = Object.freeze({ recordStatus: RECORD_STATUS.ACTIVE });
 
-/** Contadores de límites con periodo `total`. Se consultan en vivo. */
-const TOTAL_COUNTERS = Object.freeze({
-  employees: (userId) => Employee.countDocuments({
+/**
+ * Contadores de límites con periodo `total`. Se consultan en vivo.
+ * `foundation` solo registra los suyos; cada dominio registra los propios con
+ * `registerTotalCounter` para que esta capa no importe modelos de negocio.
+ */
+const TOTAL_COUNTERS = new Map([
+  ['employees', (userId) => Employee.countDocuments({
     userId,
     ...ACTIVE_FILTER,
     status: EMPLOYEE_STATUS.ACTIVE,
-  }),
-  products: (userId) => Product.countDocuments({ userId, ...ACTIVE_FILTER }),
-  contacts: async (userId) => {
-    const [customers, suppliers] = await Promise.all([
-      Customer.countDocuments({ userId, ...ACTIVE_FILTER }),
-      Supplier.countDocuments({ userId, ...ACTIVE_FILTER }),
-    ]);
-    return customers + suppliers;
-  },
-});
+  })],
+]);
 
 /** Periodo mensual actual (`YYYY-MM`) en la zona horaria del negocio. */
 function currentPeriod() {
@@ -50,6 +43,17 @@ function normalizeUsed(value) {
 }
 
 class LimitsService {
+  /**
+   * Registra cómo contar un límite con periodo `total`. Lo llama el módulo
+   * dueño del dominio (p. ej. inventario) al componerse la aplicación.
+   */
+  registerTotalCounter(key, counter) {
+    if (typeof counter !== 'function') {
+      throw new TypeError(`Counter for "${key}" must be a function`);
+    }
+    TOTAL_COUNTERS.set(key, counter);
+  }
+
   /**
    * Resuelve el plan del usuario desde el catálogo. Acepta documentos viejos
    * donde `limitUsage.plan` era un string y documentos sin `limitUsage`.
@@ -164,10 +168,10 @@ class LimitsService {
   /** Cuenta en vivo los límites con periodo `total` definidos por el plan. */
   async #countTotals(userId, plan) {
     const keys = Object.keys(plan.limits).filter(
-      (key) => plan.limits[key].period === LIMIT_PERIOD.TOTAL && TOTAL_COUNTERS[key],
+      (key) => plan.limits[key].period === LIMIT_PERIOD.TOTAL && TOTAL_COUNTERS.has(key),
     );
     const entries = await Promise.all(
-      keys.map(async (key) => [key, await TOTAL_COUNTERS[key](userId)]),
+      keys.map(async (key) => [key, await TOTAL_COUNTERS.get(key)(userId)]),
     );
     return Object.fromEntries(entries);
   }
