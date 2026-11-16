@@ -37,6 +37,35 @@ function parseDate(value, field) {
   return date;
 }
 
+/**
+ * Normaliza una fecha al día calendario del negocio (05:00Z, corte America/Bogota).
+ * Así los reportes por rango no parten un día por diferencia horaria.
+ */
+function businessDate(value, field) {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw HttpError.badRequest(`${field} must be a valid date`);
+  }
+  const calendarDate = parsed.toISOString().slice(0, 10);
+  return new Date(`${calendarDate}T05:00:00.000Z`);
+}
+
+/**
+ * Rango [from, toExclusive) en días de negocio. `from` y `to` se envían juntos
+ * o no se envía ninguno; `to` es inclusivo para el usuario.
+ */
+function businessRange(query = {}) {
+  const from = query.from ? businessDate(query.from, 'from') : null;
+  const to = query.to ? businessDate(query.to, 'to') : null;
+  if ((from && !to) || (!from && to)) {
+    throw HttpError.badRequest('from and to must be provided together');
+  }
+  if (from && to && from > to) {
+    throw HttpError.badRequest('from must be before or equal to to');
+  }
+  return { from, toExclusive: to ? new Date(to.getTime() + 86400000) : null };
+}
+
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -109,6 +138,8 @@ module.exports = {
   positiveInteger,
   pagination,
   parseDate,
+  businessDate,
+  businessRange,
   escapeRegex,
   assertNoEmptyUpdate,
   validateProductFields,

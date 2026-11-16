@@ -5,6 +5,7 @@ const { StatisticsRepository } = require('./statistics.repository');
 const models = require('./statistics.models');
 const { MOVEMENT_TYPES } = require('../inventory.constants');
 const { LOYALTY_TIER_RULES, resolveLoyaltyTier } = require('./statistics.constants');
+const { CASH_WITHDRAWAL_REASON_LABELS } = require('../cash-withdrawals/cash-withdrawals.constants');
 const { positiveInteger } = require('../validation');
 
 const MAX_RANGE_DAYS = 366;
@@ -210,6 +211,50 @@ class StatisticsService {
         totalPaid: this.#roundMoney(employees.reduce((sum, row) => sum + row.totalPaid, 0)),
       },
       employees: employees.map((row) => ({ ...row, totalPaid: this.#roundMoney(row.totalPaid) })),
+    };
+  }
+
+  /**
+   * Flujo de caja del periodo. Solo lectura: no altera ventas, utilidad ni
+   * fidelización; los retiros se consultan desde su colección aislada.
+   */
+  async cashFlow(userId, query = {}) {
+    const range = this.#dateRange(query);
+    const [sales = [], purchases = [], payments = [], withdrawals = []] = await this.repository.cashFlow(
+      userId,
+      range.from,
+      range.toExclusive,
+    );
+
+    const salesTotal = this.#roundMoney(sales[0]?.total ?? 0);
+    const purchasesTotal = this.#roundMoney(purchases[0]?.total ?? 0);
+    const paymentsTotal = this.#roundMoney(payments[0]?.total ?? 0);
+    const withdrawalTotals = withdrawals[0]?.totals?.[0] ?? { count: 0, total: 0 };
+    const withdrawalsTotal = this.#roundMoney(withdrawalTotals.total);
+    const outflowsTotal = this.#roundMoney(purchasesTotal + paymentsTotal + withdrawalsTotal);
+
+    return {
+      range: { from: query.from, to: query.to },
+      inflows: {
+        sales: salesTotal,
+        salesCount: sales[0]?.count ?? 0,
+      },
+      outflows: {
+        purchases: purchasesTotal,
+        purchasesCount: purchases[0]?.count ?? 0,
+        employeePayments: paymentsTotal,
+        employeePaymentsCount: payments[0]?.count ?? 0,
+        withdrawals: withdrawalsTotal,
+        withdrawalsCount: withdrawalTotals.count,
+        total: outflowsTotal,
+      },
+      net: this.#roundMoney(salesTotal - outflowsTotal),
+      withdrawalsByReason: (withdrawals[0]?.byReason ?? []).map((row) => ({
+        reason: row.reason,
+        label: CASH_WITHDRAWAL_REASON_LABELS[row.reason] ?? row.reason,
+        count: row.count,
+        total: this.#roundMoney(row.total),
+      })),
     };
   }
 

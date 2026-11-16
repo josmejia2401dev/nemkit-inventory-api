@@ -3,6 +3,7 @@
 const { express } = require('nemkit');
 const { authorizeResource } = require('../modules/inventory/permissions');
 const productsRoutes = require('../modules/inventory/products/products.routes');
+const cashWithdrawalsRoutes = require('../modules/inventory/cash-withdrawals/cash-withdrawals.routes');
 const categoriesRoutes = require('../modules/inventory/categories/categories.routes');
 const movementsRoutes = require('../modules/inventory/movements/movements.routes');
 const dashboardRoutes = require('../modules/inventory/dashboard/dashboard.routes');
@@ -38,6 +39,7 @@ router.use('/sales', authorizeResource('sales'), salesRoutes);
 router.use('/kitchen', authorizeResource('kitchen'), kitchenRoutes);
 router.use('/reports', authorizeResource('reports'), reportsRoutes);
 router.use('/employee-payments', authorizeResource('employee-payments'), employeePaymentsRoutes);
+router.use('/cash-withdrawals', authorizeResource('cash-withdrawals'), cashWithdrawalsRoutes);
 router.get('/employee-options', authorizeResource('employee-options'), employeesController.options.bind(employeesController));
 router.use('/deliveries', authorizeResource('deliveries'), deliveriesRoutes);
 router.use('/tables', authorizeResource('tables'), tablesRoutes);

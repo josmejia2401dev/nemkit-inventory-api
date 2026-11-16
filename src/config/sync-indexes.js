@@ -22,6 +22,7 @@ async function syncIndexes() {
     require('../modules/inventory/sales/sales.model'),
     require('../modules/inventory/deliveries/deliveries.model'),
     require('../modules/inventory/tables/tables.model'),
+    require('../modules/inventory/cash-withdrawals/cash-withdrawals.model'),
     require('../modules/foundation/feedback/feedback.model'),
   ];
 

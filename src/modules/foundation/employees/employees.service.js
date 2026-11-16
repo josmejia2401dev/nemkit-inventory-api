@@ -4,6 +4,7 @@ const { BaseService, HttpError, RECORD_STATUS, UniqueNumberUtil, hashPassword } 
 const { EmployeesRepository } = require('./employees.repository');
 const { tokensService } = require('../tokens/tokens.service');
 const { usersService } = require('../users/users.service');
+const { limitsService } = require('../limits/limits.service');
 const {
   EMPLOYEE_ROLE_TO_USER_ROLES,
   EMPLOYEE_ROLES,
@@ -85,7 +86,8 @@ class EmployeesService extends BaseService {
   async getPaymentSnapshot(id, userId) {
     const employee = await this.getOwned(id, userId);
     return {
-      employeeId: employee._id,
+      // `findOne` normaliza `_id` → `id`; el snapshot debe usar el id expuesto.
+      employeeId: employee.id ?? employee._id,
       employeeSnapshot: {
         name: employee.name,
         documentType: employee.documentType || '',
@@ -139,6 +141,7 @@ class EmployeesService extends BaseService {
     if (!EMPLOYEE_ROLE_TO_USER_ROLES[employeeData.role]) {
       throw HttpError.badRequest('Invalid employee role');
     }
+    await limitsService.assertCanCreate(userId, 'employees');
     // El correo no puede chocar con una cuenta de empresa (users).
     const companyWithEmail = await usersService.findByEmail(email);
     if (companyWithEmail) throw HttpError.conflict('Email already registered');

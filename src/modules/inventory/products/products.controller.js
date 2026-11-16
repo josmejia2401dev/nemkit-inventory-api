@@ -23,6 +23,15 @@ class ProductsController {
     }
   }
 
+  async getByBarcode(req, res, next) {
+    try {
+      const product = await service.getByBarcode(req.params.barcode, req.user.id);
+      return success(res, product);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async create(req, res, next) {
     try {
       const { errorResponse, sanitized } = createSchema.check(req.body, req);

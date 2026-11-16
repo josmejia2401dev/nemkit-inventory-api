@@ -9,6 +9,10 @@ const env = loadEnv({
   PORT:           { type: 'number', default: () => process.env.PORT || 4000 },
   API_PREFIX:     { default: '/api/v1' },
 
+  // Nombre lógico del nodo (casa / render). Se expone en /ready y /health para
+  // detectar proxies mal enrutados desde el frontend.
+  APP_NODE_NAME:  { default: '' },
+
   MONGODB_URI:                { required: true },
   MONGODB_TLS:                { type: 'boolean', default: false },
   MONGODB_TLS_ALLOW_INVALID:  { type: 'boolean', default: false },

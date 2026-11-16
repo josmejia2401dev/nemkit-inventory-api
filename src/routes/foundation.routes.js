@@ -7,6 +7,7 @@ const feedbackRoutes = require('../modules/foundation/feedback/feedback.routes')
 const sysRoutes = require('./sys.routes');
 const usersRoutes = require('./users.routes');
 const employeesRoutes = require('./employees.routes');
+const limitsRoutes = require('../modules/foundation/limits/limits.routes');
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ router.use((req, _res, next) => {
 
 router.use('/feedback', feedbackRoutes);
 router.use('/sys', sysRoutes);
+router.use('/limits', limitsRoutes);
 router.use('/users', usersRoutes);
 router.use('/employees', employeesRoutes);
 

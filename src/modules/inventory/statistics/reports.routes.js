@@ -11,5 +11,6 @@ router.get('/movements', c.movementsReport.bind(c));
 router.get('/sales', c.salesReport.bind(c));
 router.get('/sales-by-employee', c.salesByEmployee.bind(c));
 router.get('/cancelled-sales', c.cancelledSales.bind(c));
+router.get('/cash-flow', c.cashFlowReport.bind(c));
 
 module.exports = router;

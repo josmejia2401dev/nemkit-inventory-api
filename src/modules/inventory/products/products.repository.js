@@ -21,6 +21,14 @@ class ProductsRepository extends MongoRepository {
     }).select('_id name').lean());
   }
 
+  findActiveByBarcode(userId, barcode) {
+    return this._applyTimeout(this.model.findOne({
+      userId,
+      barcode,
+      recordStatus: RECORD_STATUS.ACTIVE,
+    }).lean());
+  }
+
   findSummariesByIds(userId, productIds) {
     return this._applyTimeout(this.model.find({ userId, _id: { $in: productIds } })
       .select('_id name sku')

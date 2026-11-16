@@ -2,6 +2,7 @@
 
 const { mongoose, applyPlatformSchema, RECORD_STATUS } = require('nemkit');
 const { ACCOUNT_TYPES } = require('./users.constants');
+const { DEFAULT_PLAN } = require('../limits/limits.constants');
 
 const UserSchema = applyPlatformSchema({
   fullName:     { type: String, required: true, trim: true, maxlength: 100 },
@@ -13,6 +14,19 @@ const UserSchema = applyPlatformSchema({
   companyName:  { type: String, trim: true, default: '', maxlength: 100 },
   // Tipo de negocio del dueño: activa funciones específicas (p. ej. cocina).
   businessType: { type: String, enum: ['retail', 'restaurant'], default: 'retail' },
+  // Referencia al plan. Precio y límites se resuelven siempre desde
+  // `limits.constants.js`; aquí solo se guarda el código del plan.
+  limitUsage: {
+    plan: {
+      code: { type: String, default: DEFAULT_PLAN },
+    },
+    used: {
+      // Consumo del mes (`YYYY-MM`). Los límites `total` no usan este bloque.
+      period: { type: String, default: null },
+      values: { type: mongoose.Schema.Types.Mixed, default: {} },
+      updatedAt: { type: Date, default: null },
+    },
+  },
   // Usuario dueño de la empresa asociada; null para cuentas sin empresa.
   userId:       { type: Number, default: null, index: true },
   // Empleado vinculado (si el usuario es un acceso creado para un empleado).
@@ -44,4 +58,4 @@ UserSchema.index(
 );
 UserSchema.index({ recordStatus: 1, _id: 1 });
 
-module.exports = mongoose.model('users', UserSchema);
+module.exports = mongoose.model('foundation_users', UserSchema, 'foundation_users');

@@ -4,35 +4,12 @@ const { BaseService, HttpError, UniqueNumberUtil } = require('nemkit');
 const { EmployeePaymentsRepository } = require('./employee-payments.repository');
 const { employeesService } = require('../../foundation/employees/employees.service');
 const { EMPLOYEE_PAYMENT_TYPES, EMPLOYEE_PAYMENT_METHODS } = require('./employee-payments.constants');
-const { positiveInteger } = require('../validation');
+const { positiveInteger, businessDate, businessRange } = require('../validation');
 
 function pagination(query = {}) {
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 10));
   return { page, limit };
-}
-
-function range(query = {}) {
-  const date = (value, field) => {
-    if (!value) return null;
-    const parsed = new Date(`${value}T05:00:00.000Z`);
-    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
-      throw HttpError.badRequest(`${field} must be a valid YYYY-MM-DD date`);
-    }
-    return parsed;
-  };
-  const from = date(query.from, 'from');
-  const to = date(query.to, 'to');
-  if ((from && !to) || (!from && to)) throw HttpError.badRequest('from and to must be provided together');
-  if (from && to && from > to) throw HttpError.badRequest('from must be before or equal to to');
-  return { from, toExclusive: to ? new Date(to.getTime() + 86400000) : null };
-}
-
-function businessDate(value, field) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw HttpError.badRequest(`${field} must be a valid date`);
-  const calendarDate = parsed.toISOString().slice(0, 10);
-  return new Date(`${calendarDate}T05:00:00.000Z`);
 }
 
 class EmployeePaymentsService extends BaseService {
@@ -42,7 +19,7 @@ class EmployeePaymentsService extends BaseService {
 
   async list(userId, query = {}) {
     const { page, limit } = pagination(query);
-    const { from, toExclusive } = range(query);
+    const { from, toExclusive } = businessRange(query);
     const filter = { userId };
     if (query.employeeId !== undefined) filter.employeeId = positiveInteger(query.employeeId, 'employeeId');
     if (from) filter.paymentDate = { $gte: from, $lt: toExclusive };

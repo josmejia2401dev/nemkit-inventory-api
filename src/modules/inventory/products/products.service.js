@@ -2,6 +2,7 @@
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
 const { ProductsRepository } = require('./products.repository');
+const { limitsService } = require('../../foundation/limits/limits.service');
 const {
   pagination,
   positiveInteger,
@@ -128,6 +129,28 @@ class ProductsService extends BaseService {
     });
   }
 
+  /**
+   * Lookup exacto por código de barras. Se usa al escanear: devuelve el
+   * producto activo del tenant o 404 para que el frontend ofrezca crearlo.
+   */
+  async getByBarcode(barcode, userId) {
+    if (typeof barcode !== 'string') {
+      throw HttpError.badRequest('barcode must be a string');
+    }
+
+    const value = barcode.trim();
+    if (!value || value.length > 64) {
+      throw HttpError.badRequest('barcode must be between 1 and 64 characters');
+    }
+
+    const product = await this.repository.findActiveByBarcode(userId, value);
+    if (!product) throw HttpError.notFound('Product not found');
+    // El repositorio devuelve el documento crudo de Mongo; se normaliza `_id`
+    // para que la respuesta use `id` como el resto de endpoints del API.
+    const { _id, ...rest } = product;
+    return { id: _id, ...rest };
+  }
+
   async getOwned(id, userId) {
     const productId = positiveInteger(id, 'productId');
     const product = await this.findOne({
@@ -155,6 +178,8 @@ class ProductsService extends BaseService {
     const recipe = type === PRODUCT_TYPE.PREPARED
       ? await this.#validateRecipe(data.recipe, userId)
       : [];
+
+    await limitsService.assertCanCreate(userId, 'products');
 
     try {
       return await this.repository.create({

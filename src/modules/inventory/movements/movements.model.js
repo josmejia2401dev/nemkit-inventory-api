@@ -4,7 +4,9 @@ const { MOVEMENT_TYPES, MOVEMENT_DIRECTIONS, MOVEMENT_SOURCE_TYPE } = require('.
 
 const MovementItemSchema = new mongoose.Schema({
   productId: { type: Number, required: true, min: 1 },
-  quantity: { type: Number, required: true, min: 1, validate: Number.isInteger },
+  // Los insumos se consumen en unidades fraccionarias cuando la receta lo exige
+  // (p. ej. 0.2 de queso por plato). El stock de insumos admite decimales.
+  quantity: { type: Number, required: true, min: 0.0001 },
   direction: { type: String, enum: MOVEMENT_DIRECTIONS, required: true },
   unitCost: { type: Number, min: 0, default: null },
   unitPrice: { type: Number, min: 0, default: null },

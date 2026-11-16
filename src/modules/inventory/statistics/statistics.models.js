@@ -10,4 +10,6 @@ module.exports = {
   Sale: require('../sales/sales.model'),
   Delivery: require('../deliveries/deliveries.model'),
   EmployeePayment: require('../employee-payments/employee-payments.model'),
+  Purchase: require('../purchases/purchases.model'),
+  CashWithdrawal: require('../cash-withdrawals/cash-withdrawals.model'),
 };

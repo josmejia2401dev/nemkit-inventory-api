@@ -80,6 +80,11 @@ const PERMISSIONS = Object.freeze({
     read: [],
     write: [],
   },
+  // Retiros de caja: solo ADMIN (se refuerza con requireRole en las rutas).
+  'cash-withdrawals': {
+    read: [],
+    write: [],
+  },
   dashboard: {
     read: ALL, // cualquier usuario autenticado ve su dashboard (el contenido ya está acotado por rol/empresa)
     write: [],

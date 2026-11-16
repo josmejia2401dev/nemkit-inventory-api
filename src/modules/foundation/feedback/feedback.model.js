@@ -24,4 +24,4 @@ const FeedbackSchema = applyPlatformSchema({
 
 FeedbackSchema.index({ status: 1, createdAt: -1 });
 
-module.exports = mongoose.model('feedback', FeedbackSchema);
+module.exports = mongoose.model('foundation_feedback', FeedbackSchema, 'foundation_feedback');

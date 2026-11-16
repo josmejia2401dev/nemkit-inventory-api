@@ -37,4 +37,5 @@ module.exports = {
   }),
   salesByEmployeeQuerySchema: createValidator(dateFields),
   cancelledSalesQuerySchema: createValidator({ ...dateFields, ...paginationFields }),
+  cashFlowQuerySchema: createValidator(dateFields),
 };

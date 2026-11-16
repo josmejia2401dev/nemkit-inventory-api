@@ -1,6 +1,7 @@
 'use strict';
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
+const { limitsService } = require('../../foundation/limits/limits.service');
 const { pagination, positiveInteger, escapeRegex, assertNoEmptyUpdate } = require('../validation');
 
 class ContactService extends BaseService {
@@ -43,6 +44,7 @@ class ContactService extends BaseService {
 
   async create(data, userId) {
     this.#validateEmail(data.email);
+    await limitsService.assertCanCreate(userId, 'contacts');
     try {
       return await this.repository.create({ ...data, userId }, userId);
     } catch (error) {

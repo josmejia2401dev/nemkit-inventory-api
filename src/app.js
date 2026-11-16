@@ -21,12 +21,13 @@ app.use(RequestContext.middleware());
 app.use(createCorsMiddleware({ origins: env.CORS_ORIGINS, logger }));
 app.use(createRequestLogger({ logger, enabled: env.REQUEST_LOG_ENABLED }));
 
-app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: Date.now() }));
+app.get('/health', (_req, res) => res.json({ status: 'ok', node: env.APP_NODE_NAME || null, timestamp: Date.now() }));
 
 app.get('/ready', async (_req, res) => {
   const mongoOk = mongoClient.isReady();
   res.status(mongoOk ? 200 : 503).json({
     status: mongoOk ? 'ready' : 'not ready',
+    node: env.APP_NODE_NAME || null,
     probes: { mongo: { ok: mongoOk, ...mongoClient.getStats() } },
   });
 });

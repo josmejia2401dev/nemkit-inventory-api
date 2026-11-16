@@ -9,6 +9,7 @@ const {
   salesQuerySchema,
   salesByEmployeeQuerySchema,
   cancelledSalesQuerySchema,
+  cashFlowQuerySchema,
 } = require('./statistics.validator');
 
 function check(schema, req, res) {
@@ -109,6 +110,16 @@ class StatisticsController {
       const query = check(cancelledSalesQuerySchema, req, res);
       if (!query) return;
       return success(res, await statisticsService.cancelledSales(req.user.id, query));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async cashFlowReport(req, res, next) {
+    try {
+      const query = check(cashFlowQuerySchema, req, res);
+      if (!query) return;
+      return success(res, await statisticsService.cashFlow(req.user.id, query));
     } catch (error) {
       next(error);
     }

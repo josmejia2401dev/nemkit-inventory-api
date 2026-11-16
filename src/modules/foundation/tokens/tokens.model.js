@@ -15,4 +15,4 @@ const TokenSchema = applyPlatformSchema({
 TokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 TokenSchema.index({ userId: 1, audience: 1 }, { unique: true });
 
-module.exports = mongoose.model('tokens', TokenSchema);
+module.exports = mongoose.model('foundation_tokens', TokenSchema, 'foundation_tokens');

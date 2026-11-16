@@ -436,6 +436,70 @@ class StatisticsRepository {
     return this.#employeePaymentSummary(this.models.EmployeePayment, userId, from, toExclusive, employeeId);
   }
 
+  /**
+   * Flujo de caja del periodo: lo que entra por ventas cobradas y lo que sale
+   * por compras registradas, pagos a empleados y retiros de caja.
+   * Las compras se asumen pagadas al contado (el modelo no tiene crédito).
+   */
+  cashFlow(userId, from, toExclusive) {
+    const { Sale, Purchase, EmployeePayment, CashWithdrawal } = this.models;
+    const salesMatch = {
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      status: { $ne: DOCUMENT_STATUS.VOID },
+      paymentStatus: PAYMENT_STATUS.PAID,
+      paidAt: { $gte: from, $lt: toExclusive },
+    };
+    const purchasesMatch = {
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      status: DOCUMENT_STATUS.COMPLETED,
+      date: { $gte: from, $lt: toExclusive },
+    };
+    const paymentsMatch = {
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      paymentDate: { $gte: from, $lt: toExclusive },
+    };
+    const withdrawalsMatch = {
+      userId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+      date: { $gte: from, $lt: toExclusive },
+    };
+
+    return Promise.all([
+      this.#query(Sale.aggregate([
+        { $match: salesMatch },
+        { $group: { _id: null, count: { $sum: 1 }, total: { $sum: '$total' } } },
+        { $project: { _id: 0, count: 1, total: 1 } },
+      ])),
+      this.#query(Purchase.aggregate([
+        { $match: purchasesMatch },
+        { $group: { _id: null, count: { $sum: 1 }, total: { $sum: '$total' } } },
+        { $project: { _id: 0, count: 1, total: 1 } },
+      ])),
+      this.#query(EmployeePayment.aggregate([
+        { $match: paymentsMatch },
+        { $group: { _id: null, count: { $sum: 1 }, total: { $sum: '$amount' } } },
+        { $project: { _id: 0, count: 1, total: 1 } },
+      ])),
+      this.#query(CashWithdrawal.aggregate([
+        { $match: withdrawalsMatch },
+        { $facet: {
+          totals: [
+            { $group: { _id: null, count: { $sum: 1 }, total: { $sum: '$amount' } } },
+            { $project: { _id: 0, count: 1, total: 1 } },
+          ],
+          byReason: [
+            { $group: { _id: '$reason', count: { $sum: 1 }, total: { $sum: '$amount' } } },
+            { $sort: { total: -1 } },
+            { $project: { _id: 0, reason: '$_id', count: 1, total: 1 } },
+          ],
+        } },
+      ])),
+    ]);
+  }
+
   cancelledSales(userId, from, toExclusive, { page, limit }) {
     return this.#query(this.models.Sale.aggregate([
       { $match: { userId, recordStatus: RECORD_STATUS.ACTIVE, status: DOCUMENT_STATUS.VOID, voidedAt: { $gte: from, $lt: toExclusive } } },
