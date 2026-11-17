@@ -1,6 +1,6 @@
 'use strict';
 
-const { LOYALTY_TIER } = require('../inventory.constants');
+const { LOYALTY_TIER } = require('../../inventory.constants');
 
 /** Thresholds for assigning a customer loyalty tier, from highest to lowest. */
 const LOYALTY_TIER_RULES = Object.freeze([

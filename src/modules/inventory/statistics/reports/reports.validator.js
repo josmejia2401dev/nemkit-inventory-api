@@ -1,7 +1,7 @@
 'use strict';
 
 const { createValidator } = require('nemkit');
-const { MOVEMENT_TYPES } = require('../inventory.constants');
+const { MOVEMENT_TYPES } = require('../../inventory.constants');
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const integer = (value, field) => (Number.isSafeInteger(value) ? null : `${field} must be an integer`);
@@ -15,10 +15,6 @@ const paginationFields = {
 };
 
 module.exports = {
-  customerProfileQuerySchema: createValidator({
-    page: paginationFields.page,
-    limit: { ...paginationFields.limit, max: 100 },
-  }),
   paymentSummaryQuerySchema: createValidator({
     from: { type: 'string', pattern: DATE_PATTERN },
     to: { type: 'string', pattern: DATE_PATTERN },

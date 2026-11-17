@@ -1,8 +1,8 @@
 'use strict';
 
 const { express } = require('nemkit');
-const { authorizeResource } = require('../permissions');
-const { statisticsController: c } = require('./statistics.controller');
+const { authorizeResource } = require('../../permissions');
+const { loyaltyController: c } = require('./loyalty.controller');
 const router = express.Router();
 
 router.use(authorizeResource('customers'));

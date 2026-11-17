@@ -4,7 +4,7 @@ const { RECORD_STATUS } = require('nemkit');
 const { limitsService } = require('../foundation/limits/limits.service');
 const { deliveriesService } = require('./deliveries/deliveries.service');
 const { salesService } = require('./sales/sales.service');
-const { statisticsService } = require('./statistics/statistics.service');
+const { loyaltyService } = require('./statistics/loyalty/loyalty.service');
 const Product = require('./products/products.model');
 const Customer = require('./customers/customers.model');
 const Supplier = require('./suppliers/suppliers.model');
@@ -31,8 +31,8 @@ deliveriesService.setSalesOperations({
 });
 
 salesService.setStatisticsOperations({
-  recordCustomerPurchase: (...args) => statisticsService.recordCustomerPurchase(...args),
-  reverseCustomerPurchase: (...args) => statisticsService.reverseCustomerPurchase(...args),
+  recordCustomerPurchase: (...args) => loyaltyService.recordCustomerPurchase(...args),
+  reverseCustomerPurchase: (...args) => loyaltyService.reverseCustomerPurchase(...args),
 });
 
 module.exports = { deliveriesService, salesService };

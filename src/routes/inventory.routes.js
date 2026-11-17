@@ -8,7 +8,7 @@ const categoriesRoutes = require('../modules/inventory/categories/categories.rou
 const movementsRoutes = require('../modules/inventory/movements/movements.routes');
 const dashboardRoutes = require('../modules/inventory/dashboard/dashboard.routes');
 const statisticsRoutes = require('../modules/inventory/statistics/statistics.routes');
-const statisticsController = require('../modules/inventory/statistics/statistics.controller').statisticsController;
+const loyaltyController = require('../modules/inventory/statistics/loyalty/loyalty.controller').loyaltyController;
 const suppliersRoutes = require('../modules/inventory/suppliers/suppliers.routes');
 const customersRoutes = require('../modules/inventory/customers/customers.routes');
 const purchasesRoutes = require('../modules/inventory/purchases/purchases.routes');
@@ -30,7 +30,7 @@ router.use('/categories', authorizeResource('categories'), categoriesRoutes);
 router.use('/movements', authorizeResource('movements'), movementsRoutes);
 router.use('/statistics', statisticsRoutes);
 // Legacy profile URL remains an adapter; analytics are owned by statistics.
-router.get('/customers/:id/profile', authorizeResource('customers'), statisticsController.customerProfile.bind(statisticsController));
+router.get('/customers/:id/profile', authorizeResource('customers'), loyaltyController.customerProfile.bind(loyaltyController));
 router.use('/dashboard', dashboardRoutes);
 router.use('/suppliers', authorizeResource('suppliers'), suppliersRoutes);
 router.use('/customers', authorizeResource('customers'), customersRoutes);
