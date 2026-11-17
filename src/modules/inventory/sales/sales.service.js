@@ -1,12 +1,12 @@
 'use strict';
 
-const { HttpError, RECORD_STATUS, UniqueNumberUtil } = require('nemkit');
-const { employeesService } = require('../../foundation/employees/employees.service');
+const { HttpError, UniqueNumberUtil } = require('nemkit');
 const { productsService } = require('../products/products.service');
 const { movementsService } = require('../movements/movements.service');
 const { deliveriesService } = require('../deliveries/deliveries.service');
 const { InventoryDocumentService } = require('../documents/document.service');
 const { SalesRepository } = require('./sales.repository');
+const { createDeliveryForSale } = require('./sale-delivery');
 const { customersService } = require('../customers/customers.service');
 const { positiveInteger } = require('../validation');
 const {
@@ -17,7 +17,6 @@ const {
   ORDER_STATUS,
   PAYMENT_STATUS,
   CANCEL_REASONS,
-  DELIVERY_STATUS,
 } = require('../inventory.constants');
 
 class SalesService extends InventoryDocumentService {
@@ -83,9 +82,7 @@ class SalesService extends InventoryDocumentService {
 
   /**
    * Si la venta es a domicilio (data.delivery presente), crea el pedido de
-   * entrega vinculado a la venta dentro de la misma transacción. La venta ya
-   * descontó el stock; el domicilio es logística de entrega (no vuelve a tocar
-   * existencias ni genera otra venta).
+   * entrega vinculado a la venta dentro de la misma transacción.
    */
   async afterCreate({ document, data, contact, items, userId, session }) {
     if (document.paymentStatus === PAYMENT_STATUS.PAID && contact) {
@@ -93,74 +90,15 @@ class SalesService extends InventoryDocumentService {
       await recordCustomerPurchase(contact, document.total, document.date, userId, session);
     }
 
-    const delivery = data.delivery;
-    if (!delivery) return;
-
-    const address = typeof delivery.address === 'string' ? delivery.address.trim() : '';
-    if (!address || address.length > 300) {
-      throw HttpError.badRequest('delivery.address is required and must be at most 300 characters');
-    }
-
-    const location = this.#validateDeliveryLocation(delivery.location);
-    const courier = await this.#resolveCourier(userId, delivery.courierId, session);
-
-    await deliveriesService.createFromSale({
-      _id: UniqueNumberUtil.generateRaw(),
-      userId,
-      saleId: document._id,
-      // Restaurante: la venta nace con kitchenStatus → el pedido pasa por cocina.
+    return createDeliveryForSale({
+      document,
+      delivery: data.delivery,
+      contact,
+      items,
       fromKitchen: data.kitchenStatus != null,
-      customerId: document.customerId,
-      customerSnapshot: {
-        name: contact.name,
-        phone: contact.phone || '',
-      },
-      address,
-      location,
-      items: items.map((item) => ({
-        productId: item.productId,
-        sku: item.sku,
-        name: item.name,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        lineTotal: item.lineTotal,
-      })),
-      total: document.total,
-      notes: typeof delivery.notes === 'string' ? delivery.notes.slice(0, 1000) : '',
-      status: DELIVERY_STATUS.PENDING,
-      courierId: courier.courierId,
-      courierSnapshot: courier.courierSnapshot,
-      createdBy: userId,
-      updatedBy: userId,
-    }, session);
-  }
-
-  #validateDeliveryLocation(location) {
-    if (location == null) return { lat: null, lng: null };
-    if (typeof location !== 'object' || Array.isArray(location)) {
-      throw HttpError.badRequest('delivery.location must be an object');
-    }
-    const coord = (value, field, bound) => {
-      if (value === undefined || value === null || value === '') return null;
-      if (typeof value !== 'number' || !Number.isFinite(value) || value < -bound || value > bound) {
-        throw HttpError.badRequest(`delivery.location.${field} must be a number between ${-bound} and ${bound}`);
-      }
-      return value;
-    };
-    return { lat: coord(location.lat, 'lat', 90), lng: coord(location.lng, 'lng', 180) };
-  }
-
-  async #resolveCourier(userId, courierId, session) {
-    if (courierId == null || courierId === '') return { courierId: null, courierSnapshot: { name: '' } };
-    const id = positiveInteger(courierId, 'delivery.courierId');
-    try {
-      return await employeesService.getActiveCourierSnapshot(userId, id, session);
-    } catch (error) {
-      if (error.statusCode === 400 && error.message.startsWith('Invalid or inactive courier')) {
-        throw HttpError.badRequest('Invalid or inactive courier');
-      }
-      throw error;
-    }
+      userId,
+      session,
+    });
   }
 
   /**
@@ -274,90 +212,6 @@ class SalesService extends InventoryDocumentService {
 
   hasCustomerSales(userId, customerId) {
     return this.repository.hasCustomerSales(userId, customerId);
-  }
-
-  activeKitchenOrderCountsByTable(userId) {
-    return this.repository.activeKitchenOrderCountsByTable(userId);
-  }
-
-  /** Lista comandas activas del agregado de ventas. */
-  listKitchenOrders(userId, { includeCompleted = false } = {}) {
-    return this.repository.listKitchenOrders(userId, includeCompleted);
-  }
-
-  async getKitchenSale(saleId, userId) {
-    const id = positiveInteger(saleId, 'saleId');
-    const sale = await this.repository.findKitchenSale(id, userId);
-    if (!sale) throw HttpError.notFound('Sale not found');
-    return sale;
-  }
-
-  async advanceOrder(saleId, userId, nextStatus, businessType, roles = []) {
-    const id = positiveInteger(saleId, 'saleId');
-    const sale = await this.repository.findKitchenSale(id, userId);
-    if (!sale) throw HttpError.notFound('Sale not found');
-    if (sale.status === DOCUMENT_STATUS.VOID) throw HttpError.conflict('Sale is void');
-    if (businessType !== 'restaurant' && sale.orderChannel === 'delivery') {
-      throw HttpError.conflict('Manage delivery order progress from Domicilios');
-    }
-
-    const currentStatus = sale.orderStatus ?? sale.kitchenStatus ?? ORDER_STATUS.PENDING;
-    const allowedNext = {
-      [ORDER_STATUS.PENDING]: [ORDER_STATUS.PREPARING],
-      [ORDER_STATUS.PREPARING]: [ORDER_STATUS.READY],
-      [ORDER_STATUS.READY]: sale.orderChannel === 'delivery'
-        ? []
-        : [ORDER_STATUS.DELIVERED],
-    }[currentStatus] ?? [];
-    if (!allowedNext.includes(nextStatus)) {
-      throw HttpError.conflict(`Cannot change order status from ${currentStatus} to ${nextStatus}`);
-    }
-
-    const allowedRoles = this.#allowedPreparationRoles(sale, businessType);
-    if (!roles.some((role) => allowedRoles.includes(role))) {
-      throw HttpError.forbidden('Your role cannot advance this order');
-    }
-    if ((businessType === 'restaurant') !== (sale.kitchenStatus != null)) {
-      throw HttpError.conflict('This order belongs to a different preparation workflow');
-    }
-
-    const now = new Date();
-    const timeline = {};
-    if (nextStatus === ORDER_STATUS.PREPARING) timeline.startedAt = now;
-    if (nextStatus === ORDER_STATUS.READY) timeline.readyAt = now;
-    if (nextStatus === ORDER_STATUS.DELIVERED) timeline.deliveredAt = now;
-
-    return this.repository.withTransaction(async (session) => {
-      const result = await this.repository.setOrderProgressInSession(
-        id,
-        userId,
-        currentStatus,
-        nextStatus,
-        timeline,
-        session,
-      );
-      if (result.matchedCount !== 1) {
-        throw HttpError.conflict('Order status changed; refresh and try again');
-      }
-      await deliveriesService.syncFromKitchen(id, userId, nextStatus, session);
-      return { id, orderStatus: nextStatus };
-    });
-  }
-
-  #allowedPreparationRoles(sale, businessType) {
-    if (businessType !== 'restaurant') return ['ADMIN', 'SELLER'];
-    return ['ADMIN', 'SELLER', 'WAITER', 'CASHIER', 'COOK'];
-  }
-
-  async setOrderStatusFromDelivery(saleId, userId, status, session) {
-    const result = await this.repository.setOrderStatusInSession(
-      positiveInteger(saleId, 'saleId'),
-      userId,
-      status,
-      session,
-    );
-    if (result.matchedCount !== 1) throw HttpError.conflict('The sale linked to this delivery no longer exists');
-    return result;
   }
 
   /**

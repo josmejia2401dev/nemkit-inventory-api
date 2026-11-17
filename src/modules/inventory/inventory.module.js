@@ -4,6 +4,7 @@ const { RECORD_STATUS } = require('nemkit');
 const { limitsService } = require('../foundation/limits/limits.service');
 const { deliveriesService } = require('./deliveries/deliveries.service');
 const { salesService } = require('./sales/sales.service');
+const { kitchenService } = require('./kitchen/kitchen.service');
 const { loyaltyService } = require('./statistics/loyalty/loyalty.service');
 const Product = require('./products/products.model');
 const Customer = require('./customers/customers.model');
@@ -27,7 +28,7 @@ limitsService.registerTotalCounter('contacts', async (userId) => {
 
 deliveriesService.setSalesOperations({
   voidSale: (...args) => salesService.voidSale(...args),
-  setOrderStatusFromDelivery: (...args) => salesService.setOrderStatusFromDelivery(...args),
+  setOrderStatusFromDelivery: (...args) => kitchenService.setOrderStatusFromDelivery(...args),
 });
 
 salesService.setStatisticsOperations({

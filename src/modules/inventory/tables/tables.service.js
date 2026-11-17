@@ -24,8 +24,8 @@ class TablesService extends BaseService {
     const tables = await this.repository.listForOccupancy(userId);
 
     // Mesas con comanda activa (agrupadas por nombre de mesa).
-    const { salesService } = require('../sales/sales.service');
-    const busy = await salesService.activeKitchenOrderCountsByTable(userId);
+    const { kitchenService } = require('../kitchen/kitchen.service');
+    const busy = await kitchenService.activeCountsByTable(userId);
     const busyByName = new Map(busy.map((row) => [row._id, row.orders]));
 
     return tables.map((table) => ({

@@ -3,6 +3,7 @@
 const { created, success, HttpError } = require('nemkit');
 const { InventoryDocumentController } = require('../documents/document.controller');
 const { salesService } = require('./sales.service');
+const { kitchenService } = require('../kitchen/kitchen.service');
 const { saleSchema, cancelSchema, orderStatusSchema } = require('./sales.validator');
 
 class SalesController extends InventoryDocumentController {
@@ -47,7 +48,7 @@ class SalesController extends InventoryDocumentController {
       if (!roles.includes('ADMIN') && !roles.includes('SELLER')) {
         throw HttpError.forbidden('Only the administrator or seller can update store order status');
       }
-      return success(res, await this.service.advanceOrder(
+      return success(res, await kitchenService.advanceOrder(
         req.params.id,
         req.user.id,
         sanitized.orderStatus,
