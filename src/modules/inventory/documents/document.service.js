@@ -15,6 +15,12 @@ const {
   KITCHEN_STATUS,
   ORDER_STATUS,
 } = require('../inventory.constants');
+const { buildDocumentItems } = require('./pricing');
+const {
+  buildStockConsumption,
+  findInsufficientStock,
+  buildMovementItems,
+} = require('./stock-plan');
 
 class InventoryDocumentService extends BaseService {
   constructor({ repository, contactService, contactField, movementType, direction, amountField, label, requiredContact = false }) {
@@ -63,203 +69,62 @@ class InventoryDocumentService extends BaseService {
   }
 
   async create(data, userId) {
-    const items = this.#validateItems(data.items);
-    const date = data.date ? parseDate(data.date, 'date') : new Date();
-    const contactId = data[this.contactField] == null
-      ? null
-      : positiveInteger(data[this.contactField], this.contactField);
-    if (this.requiredContact && contactId === null) {
-      throw HttpError.badRequest(`${this.contactField} is required`);
-    }
-    const notes = data.notes ?? '';
-    if (typeof notes !== 'string' || notes.length > 1000) {
-      throw HttpError.badRequest('notes must be a string of at most 1000 characters');
-    }
+    const { items, date, contactId, notes } = this.#parseHeader(data);
+    const isOut = this.direction === MOVEMENT_DIRECTION.OUT;
 
     return this.repository.withTransaction(async (session) => {
-      let contact = null;
-      if (contactId !== null) {
-        contact = await this.contactService.getActiveForDocument(contactId, userId, session);
-        if (!contact) throw HttpError.badRequest(`Invalid or inactive ${this.contactField}`);
-      }
-
+      const contact = await this.#resolveContact(contactId, userId, session);
       const { employeeId, employeeSnapshot } = await employeesService.resolveResponsible(
         userId,
         data.employeeId,
         session,
       );
+      const productById = await this.#loadProducts(userId, items, isOut, session);
+      const ingredientById = await this.#loadIngredients(userId, productById, isOut, session);
 
-      const productIds = [...new Set(items.map((item) => item.productId))];
-      const products = await productsService.findActiveForStockChange(userId, productIds, session);
-      if (products.length !== productIds.length) {
-        throw HttpError.badRequest('One or more products are invalid or inactive');
-      }
-
-      const productById = new Map(products.map((product) => [product._id, product]));
-      const isOut = this.direction === MOVEMENT_DIRECTION.OUT;
-
-      // Validar que cada producto sea apto para la operación (comprable/vendible).
-      const allowedTypes = isOut ? SELLABLE_TYPES : PURCHASABLE_TYPES;
-      for (const product of products) {
-        if (!allowedTypes.includes(product.type ?? PRODUCT_TYPE.SIMPLE)) {
-          throw HttpError.badRequest(
-            isOut
-              ? `"${product.name}" is not sellable`
-              : `"${product.name}" is not purchasable`,
-          );
-        }
-      }
-
-      // Cargar insumos de recetas (solo ventas de platos). Se consultan dentro de
-      // la transacción para validar y descontar su stock de forma consistente.
-      const ingredientById = new Map();
-      if (isOut) {
-        const ingredientIds = new Set();
-        for (const product of products) {
-          if (product.type === PRODUCT_TYPE.PREPARED) {
-            for (const ri of product.recipe ?? []) ingredientIds.add(ri.ingredientId);
-          }
-        }
-        if (ingredientIds.size) {
-          const ingredients = await productsService.findActiveForStockChange(
-            userId,
-            [...ingredientIds],
-            session,
-          );
-          for (const ing of ingredients) ingredientById.set(ing._id, ing);
-          if (ingredients.length !== ingredientIds.size) {
-            throw HttpError.badRequest('A recipe ingredient is invalid or inactive');
-          }
-        }
-      }
-
-      // Costo unitario del producto: para platos = suma de costos de insumos por receta.
-      const unitCostOf = (product) => {
-        if (product.type === PRODUCT_TYPE.PREPARED) {
-          return this.#roundMoney(
-            (product.recipe ?? []).reduce((sum, ri) => {
-              const ing = ingredientById.get(ri.ingredientId);
-              return sum + (ing ? ing.purchasePrice * ri.quantity : 0);
-            }, 0),
-          );
-        }
-        return product.purchasePrice;
-      };
-
-      const quantities = new Map();
-      const documentItems = items.map((item) => {
-        const product = productById.get(item.productId);
-        quantities.set(item.productId, (quantities.get(item.productId) || 0) + item.quantity);
-        const unitAmount = item[this.amountField];
-        const lineTotal = this.#roundMoney(unitAmount * item.quantity);
-        return {
-          productId: item.productId,
-          sku: product.sku,
-          name: product.name,
-          quantity: item.quantity,
-          unitCost: isOut ? unitCostOf(product) : unitAmount,
-          ...(isOut ? { unitPrice: unitAmount } : {}),
-          lineTotal,
-        };
+      const { documentItems, quantities, total } = buildDocumentItems({
+        items,
+        productById,
+        ingredientById,
+        amountField: this.amountField,
+        isOut,
       });
-
-      // Consumo real de stock por producto físico (simple/ingredient), expandiendo
-      // las recetas de los platos. Un plato (prepared) no descuenta stock propio.
-      const stockConsumption = new Map();
-      const addConsumption = (productId, qty) => {
-        stockConsumption.set(productId, (stockConsumption.get(productId) || 0) + qty);
-      };
-      for (const [productId, qty] of quantities) {
-        const product = productById.get(productId);
-        if (isOut && product.type === PRODUCT_TYPE.PREPARED) {
-          for (const ri of product.recipe ?? []) {
-            addConsumption(ri.ingredientId, ri.quantity * qty);
-          }
-        } else {
-          addConsumption(productId, qty);
-        }
-      }
-
-      // Aplicar el cambio de stock. En salida se condiciona a stock suficiente.
-      for (const [productId, qty] of stockConsumption) {
-        const product = productById.get(productId) || ingredientById.get(productId);
-        if (isOut && (product?.stock ?? 0) < qty) {
-          throw HttpError.conflict(`Insufficient stock for ${product?.name ?? `product ${productId}`}`);
-        }
-        const result = await productsService.changeStock(
-          userId,
-          productId,
-          qty,
-          this.direction,
-          session,
-        );
-        if (result.modifiedCount !== 1) throw HttpError.conflict('Stock changed; retry the document');
-      }
+      const stockPlan = buildStockConsumption({ quantities, productById, isOut });
+      await this.#applyStockConsumption({
+        plan: stockPlan,
+        productById,
+        ingredientById,
+        userId,
+        session,
+        isOut,
+      });
 
       const documentId = UniqueNumberUtil.generateRaw();
       const movementId = UniqueNumberUtil.generateRaw();
-      const total = this.#roundMoney(documentItems.reduce((sum, item) => sum + item.lineTotal, 0));
-      const hasTableNumber = typeof data.tableNumber === 'string' && data.tableNumber.trim().length > 0;
-      const kitchenStatus = data.kitchenStatus
-        ?? (isOut && hasTableNumber ? KITCHEN_STATUS.PENDING : null);
-      const normalizedData = kitchenStatus == null ? data : { ...data, kitchenStatus };
-      const documentData = {
-        _id: documentId,
+      const documentData = this.#buildDocument({
+        documentId,
+        movementId,
         userId,
+        data,
+        isOut,
         date,
         notes,
+        contactId,
+        contact,
         employeeId,
         employeeSnapshot,
-        items: documentItems,
+        documentItems,
         total,
-        movementId,
-        createdBy: userId,
-        updatedBy: userId,
-      };
-      if (contactId !== null) {
-        documentData[this.contactField] = contactId;
-        documentData[this.contactField === 'supplierId' ? 'supplierSnapshot' : 'customerSnapshot'] = this.#contactSnapshot(contact);
-      }
-      // Restaurante: si la venta entra a cocina, nace como comanda pendiente.
-      if (kitchenStatus != null) {
-        documentData.kitchenStatus = kitchenStatus;
-        documentData.kitchenTimeline = {};
-      }
-      if (isOut) {
-        documentData.orderStatus = ORDER_STATUS.PENDING;
-      }
-      if (isOut) {
-        documentData.orderChannel = data.delivery ? 'delivery' : 'on_site';
-      }
-      if (typeof data.tableNumber === 'string' && data.tableNumber.trim()) {
-        documentData.tableNumber = data.tableNumber.trim().slice(0, 20);
-      }
-      // Toda venta requiere confirmación explícita del cobro; las compras no
-      // representan dinero recibido por caja.
-      if (isOut || data.paymentStatus === 'pending') {
-        documentData.paymentStatus = 'pending';
-        documentData.paidAt = null;
-      } else {
-        documentData.paymentStatus = 'paid';
-        documentData.paidAt = date;
-      }
+      });
 
       const document = await this.repository.createInSession(documentData, session);
-      // El movimiento refleja el consumo físico real de stock (insumos expandidos
-      // para platos). En compra el consumo coincide con los ítems del documento.
-      const movementItems = [...stockConsumption.entries()].map(([productId, qty]) => {
-        const product = productById.get(productId) || ingredientById.get(productId);
-        const unitCost = this.#roundMoney(
-          isOut
-            ? (product?.purchasePrice ?? 0)
-            : (items.find((it) => it.productId === productId)?.unitCost ?? product?.purchasePrice ?? 0),
-        );
-        return {
-          productId,
-          quantity: qty,
-          direction: this.direction,
-          unitCost,
-        };
+      const movementItems = buildMovementItems({
+        plan: stockPlan,
+        productById,
+        ingredientById,
+        items: documentItems,
+        direction: this.direction,
+        isOut,
       });
       // Solo se registra un movimiento de inventario si hubo consumo real de
       // stock. Una venta compuesta únicamente por platos sin receta no mueve
@@ -285,12 +150,173 @@ class InventoryDocumentService extends BaseService {
 
       // Las métricas de fidelización suman cuando la venta se cobra. Una venta
       // pagada al instante (tienda) suma aquí; una "por cobrar" sumará al cobrar.
-      // Hook de extensión dentro de la misma transacción (lo usa Ventas para
-      // crear el domicilio asociado cuando la venta es a domicilio).
-      await this.afterCreate({ document, data: normalizedData, contact, items: documentItems, userId, session });
+      // Hook dentro de la transacción (Ventas crea el domicilio asociado).
+      const normalizedData = documentData.kitchenStatus == null
+        ? data
+        : { ...data, kitchenStatus: documentData.kitchenStatus };
+      await this.afterCreate({
+        document,
+        data: normalizedData,
+        contact,
+        items: documentItems,
+        userId,
+        session,
+      });
 
       return this.repository.normalizeOutput(document);
     });
+  }
+
+  /** Fecha, contacto y notas del documento, ya validados. */
+  #parseHeader(data) {
+    const items = this.#validateItems(data.items);
+    const date = data.date ? parseDate(data.date, 'date') : new Date();
+    const contactId = data[this.contactField] == null
+      ? null
+      : positiveInteger(data[this.contactField], this.contactField);
+    if (this.requiredContact && contactId === null) {
+      throw HttpError.badRequest(`${this.contactField} is required`);
+    }
+    const notes = data.notes ?? '';
+    if (typeof notes !== 'string' || notes.length > 1000) {
+      throw HttpError.badRequest('notes must be a string of at most 1000 characters');
+    }
+    return { items, date, contactId, notes };
+  }
+
+  async #resolveContact(contactId, userId, session) {
+    if (contactId === null) return null;
+    const contact = await this.contactService.getActiveForDocument(contactId, userId, session);
+    if (!contact) throw HttpError.badRequest(`Invalid or inactive ${this.contactField}`);
+    return contact;
+  }
+
+  /** Productos del documento, validando que existan y sean aptos para la operación. */
+  async #loadProducts(userId, items, isOut, session) {
+    const productIds = [...new Set(items.map((item) => item.productId))];
+    const products = await productsService.findActiveForStockChange(userId, productIds, session);
+    if (products.length !== productIds.length) {
+      throw HttpError.badRequest('One or more products are invalid or inactive');
+    }
+
+    const allowedTypes = isOut ? SELLABLE_TYPES : PURCHASABLE_TYPES;
+    for (const product of products) {
+      if (!allowedTypes.includes(product.type ?? PRODUCT_TYPE.SIMPLE)) {
+        throw HttpError.badRequest(
+          isOut
+            ? `"${product.name}" is not sellable`
+            : `"${product.name}" is not purchasable`,
+        );
+      }
+    }
+
+    return new Map(products.map((product) => [product._id, product]));
+  }
+
+  /** Insumos de las recetas de los platos; solo aplica a salidas. */
+  async #loadIngredients(userId, productById, isOut, session) {
+    const ingredientById = new Map();
+    if (!isOut) return ingredientById;
+
+    const ingredientIds = new Set();
+    for (const product of productById.values()) {
+      if (product.type !== PRODUCT_TYPE.PREPARED) continue;
+      for (const ri of product.recipe ?? []) ingredientIds.add(ri.ingredientId);
+    }
+    if (!ingredientIds.size) return ingredientById;
+
+    const ingredients = await productsService.findActiveForStockChange(
+      userId,
+      [...ingredientIds],
+      session,
+    );
+    if (ingredients.length !== ingredientIds.size) {
+      throw HttpError.badRequest('A recipe ingredient is invalid or inactive');
+    }
+    for (const ingredient of ingredients) ingredientById.set(ingredient._id, ingredient);
+
+    return ingredientById;
+  }
+
+  /** Aplica el plan de stock; en salida exige existencias suficientes. */
+  async #applyStockConsumption({ plan, productById, ingredientById, userId, session, isOut }) {
+    const shortage = findInsufficientStock({ plan, productById, ingredientById, isOut });
+    if (shortage) {
+      throw HttpError.conflict(
+        `Insufficient stock for ${shortage.product?.name ?? `product ${shortage.productId}`}`,
+      );
+    }
+
+    for (const [productId, quantity] of plan) {
+      const result = await productsService.changeStock(
+        userId,
+        productId,
+        quantity,
+        this.direction,
+        session,
+      );
+      if (result.modifiedCount !== 1) throw HttpError.conflict('Stock changed; retry the document');
+    }
+  }
+
+  /** Documento listo para persistir, con estado de pedido/pago ya resuelto. */
+  #buildDocument({
+    documentId,
+    movementId,
+    userId,
+    data,
+    isOut,
+    date,
+    notes,
+    contactId,
+    contact,
+    employeeId,
+    employeeSnapshot,
+    documentItems,
+    total,
+  }) {
+    const hasTableNumber = typeof data.tableNumber === 'string' && data.tableNumber.trim().length > 0;
+    const kitchenStatus = data.kitchenStatus
+      ?? (isOut && hasTableNumber ? KITCHEN_STATUS.PENDING : null);
+    const documentData = {
+      _id: documentId,
+      userId,
+      date,
+      notes,
+      employeeId,
+      employeeSnapshot,
+      items: documentItems,
+      total,
+      movementId,
+      createdBy: userId,
+      updatedBy: userId,
+    };
+    if (contactId !== null) {
+      documentData[this.contactField] = contactId;
+      documentData[this.contactField === 'supplierId' ? 'supplierSnapshot' : 'customerSnapshot'] = this.#contactSnapshot(contact);
+    }
+    // Restaurante: si la venta entra a cocina, nace como comanda pendiente.
+    if (kitchenStatus != null) {
+      documentData.kitchenStatus = kitchenStatus;
+      documentData.kitchenTimeline = {};
+    }
+    if (isOut) {
+      documentData.orderStatus = ORDER_STATUS.PENDING;
+      documentData.orderChannel = data.delivery ? 'delivery' : 'on_site';
+    }
+    if (typeof data.tableNumber === 'string' && data.tableNumber.trim()) {
+      documentData.tableNumber = data.tableNumber.trim().slice(0, 20);
+    }
+    // Toda venta requiere confirmación explícita del cobro; las compras no
+    // representan dinero recibido por caja.
+    if (isOut || data.paymentStatus === 'pending') {
+      documentData.paymentStatus = 'pending';
+      documentData.paidAt = null;
+    } else {
+      documentData.paymentStatus = 'paid';
+      documentData.paidAt = date;
+    }
+    return documentData;
   }
 
   /**
@@ -331,10 +357,6 @@ class InventoryDocumentService extends BaseService {
       email: contact.email || '',
       ...(contact.address !== undefined ? { address: contact.address || '' } : {}),
     };
-  }
-
-  #roundMoney(value) {
-    return Math.round((value + Number.EPSILON) * 100) / 100;
   }
 }
 
