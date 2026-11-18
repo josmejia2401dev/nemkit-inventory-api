@@ -78,19 +78,24 @@ class SalesRepository extends InventoryDocumentRepository {
   }
 
   async activeKitchenOrderCountsByTable(userId) {
+    const activeStatuses = [KITCHEN_STATUS.PENDING, KITCHEN_STATUS.PREPARING, KITCHEN_STATUS.READY];
     return applyMongoTimeout(this.model.aggregate([
       {
         $match: {
           userId,
           recordStatus: RECORD_STATUS.ACTIVE,
-          kitchenStatus: { $in: [KITCHEN_STATUS.PENDING, KITCHEN_STATUS.PREPARING, KITCHEN_STATUS.READY] },
+          status: { $ne: DOCUMENT_STATUS.VOID },
           tableNumber: { $gt: '' },
+          // `orderStatus` es el estado canónico; `kitchenStatus` solo cubre pedidos antiguos.
+          $or: [
+            { orderStatus: { $in: activeStatuses } },
+            { orderStatus: { $in: [null] }, kitchenStatus: { $in: activeStatuses } },
+          ],
         },
       },
       { $group: { _id: '$tableNumber', orders: { $sum: 1 } } },
     ]), this.queryTimeoutMs);
   }
-
 
 }
 
