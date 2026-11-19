@@ -29,7 +29,7 @@ class SalesRepository extends InventoryDocumentRepository {
     }
 
     const sales = await this._applyTimeout(this.model.find(filter)
-      .select('_id date tableNumber orderChannel kitchenStatus orderStatus kitchenTimeline paymentStatus paidAt items total customerSnapshot employeeSnapshot notes')
+      .select('_id date createdAt tableNumber orderChannel kitchenStatus orderStatus kitchenTimeline paymentStatus paidAt items total customerSnapshot employeeSnapshot notes')
       .sort({ date: 1 })
       .limit(200)
       .lean());

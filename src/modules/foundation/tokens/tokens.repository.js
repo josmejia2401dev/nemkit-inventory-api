@@ -16,6 +16,16 @@ class TokensRepository extends MongoRepository {
     return result.deletedCount > 0;
   }
 
+  /** Extiende la vigencia de una sesión viva (refresh deslizante). */
+  async extendById(id, expiresAt) {
+    const doc = await this.model.findOneAndUpdate(
+      { _id: id, expiresAt: { $gt: new Date() } },
+      { $set: { expiresAt } },
+      { new: true },
+    );
+    return this.normalizeOutput(doc);
+  }
+
   async deleteByUserAndAudience(userId, audience) {
     const result = await this.model.deleteMany({ userId, audience });
     return result.deletedCount > 0;

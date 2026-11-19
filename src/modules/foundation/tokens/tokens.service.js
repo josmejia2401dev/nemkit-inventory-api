@@ -29,15 +29,21 @@ class TokensService {
   }
 
   /**
-   * Rota: elimina la sesión vieja y crea una nueva.
-   * @returns {{ oldSession, newSession }} o null si no existe
+   * Refresca la sesión sin cambiar el `jti`: extiende su vigencia y devuelve la
+   * misma sesión para firmar tokens nuevos.
+   *
+   * La sesión es única por usuario+audiencia (índice único). Borrar la sesión y
+   * crear otra en cada refresh rompía el multi-pestaña: la segunda pestaña
+   * llegaba con un `jti` ya eliminado y recibía 401, cerrando la sesión. El
+   * logout, el cambio de clave y `revokeAllSessions` siguen revocando la fila,
+   * así que la sesión muere igual en esos casos.
+   *
+   * @returns {{ session }} o null si la sesión ya no existe o expiró.
    */
-  async rotateSession(oldId, userId, audience, deviceInfo = {}) {
-    const existing = await this.repository.findValidById(oldId);
-    if (!existing) return null;
-    await this.repository.deleteById(oldId);
-    const newSession = await this.createSession(userId, audience, deviceInfo);
-    return { oldSession: existing, newSession };
+  async refreshSession(id, deviceInfo = {}) {
+    const expiresAt = this.#calcExp(env.JWT_REFRESH_EXPIRES_IN);
+    const session = await this.repository.extendById(id, expiresAt);
+    return session ? { session } : null;
   }
 
   async revokeAllSessions(userId, session = null) {

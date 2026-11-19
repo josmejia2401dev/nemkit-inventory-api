@@ -69,18 +69,13 @@ class AuthService {
     try { payload = jwtManager.verifyRefreshToken(refreshTokenStr); }
     catch { throw HttpError.unauthorized('Invalid refresh token'); }
 
-    const oldId = Number(payload.jti);
-    const session = await tokensService.validateSession(oldId);
-    if (!session) throw HttpError.unauthorized('Session expired or revoked');
-
     const user = await usersService.getById(payload.id);
     if (user.recordStatus !== 'active') throw HttpError.forbidden('User inactive');
 
-    const audience = deviceInfo.audience ?? 'web';
-    const result = await tokensService.rotateSession(oldId, payload.id, audience, deviceInfo);
+    const result = await tokensService.refreshSession(Number(payload.jti), deviceInfo);
     if (!result) throw HttpError.unauthorized('Session expired or revoked');
 
-    const newJti = String(result.newSession.id);
+    const newJti = String(result.session.id);
     const userId = this.#companyUserId(user);
     const businessType = await this.#resolveBusinessType(user, userId);
     const accessToken = jwtManager.signAccessToken({ id: user.id, email: user.email, fullName: user.fullName, roles: user.roles, userId, employeeId: user.employeeId ?? null, businessType }, newJti);
