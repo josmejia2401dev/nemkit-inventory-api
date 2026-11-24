@@ -1,0 +1,12 @@
+# El contenedor instala sus propias dependencias y recibe la configuración por
+# entorno: nada de esto debe viajar en el contexto de build.
+node_modules
+logs
+tmp
+.env
+.env.*
+.git
+.gitignore
+Dockerfile
+.dockerignore
+*.log
