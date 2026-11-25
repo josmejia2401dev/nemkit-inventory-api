@@ -35,18 +35,18 @@ Un producto con stock no se puede eliminar lógicamente hasta registrar una sali
 
 ## Rutas protegidas
 
-- `GET/POST /api/v1/products`, `GET/PUT/DELETE /api/v1/products/:id`
-- `GET/POST /api/v1/categories`, `PUT/DELETE /api/v1/categories/:id`
-- `GET/POST /api/v1/movements`, `GET /api/v1/movements/:id`
-- `GET/POST /api/v1/suppliers`, `GET/PUT/DELETE /api/v1/suppliers/:id`
-- `GET/POST /api/v1/customers`, `GET/PUT/DELETE /api/v1/customers/:id`
-- `GET/POST /api/v1/purchases`, `GET /api/v1/purchases/:id`
-- `GET/POST /api/v1/sales`, `GET /api/v1/sales/:id`
-- `GET /api/v1/dashboard/summary`
-- `/api/v1/auth`, `/api/v1/profile` y `/api/v1/settings/business` del foundation
-- `/api/v1/notifications`, `/api/v1/notifications/unread-count`, `/api/v1/notifications/:id` y `/api/v1/notifications/read-all`
-- `/api/v1/platform/announcements` para crear, publicar y archivar avisos (solo `SUPERADMIN`)
-- `/api/v1/platform/companies/:companyId/members` para asociar/desasociar empleados y `/api/v1/platform/users/:userId/employment-history` para ver su historial (solo `SUPERADMIN`)
+- `GET/POST /api/v1/inventory/products`, `GET/PUT/DELETE /api/v1/inventory/products/:id`
+- `GET/POST /api/v1/inventory/categories`, `PUT/DELETE /api/v1/inventory/categories/:id`
+- `GET/POST /api/v1/inventory/movements`, `GET /api/v1/inventory/movements/:id`
+- `GET/POST /api/v1/inventory/suppliers`, `GET/PUT/DELETE /api/v1/inventory/suppliers/:id`
+- `GET/POST /api/v1/inventory/customers`, `GET/PUT/DELETE /api/v1/inventory/customers/:id`
+- `GET/POST /api/v1/inventory/purchases`, `GET /api/v1/inventory/purchases/:id`
+- `GET/POST /api/v1/inventory/sales`, `GET /api/v1/inventory/sales/:id`
+- `GET /api/v1/inventory/dashboard/summary`
+- `/api/v1/inventory/auth`, `/api/v1/inventory/profile` y `/api/v1/inventory/settings/business` del foundation
+- `/api/v1/inventory/notifications`, `/api/v1/inventory/notifications/unread-count`, `/api/v1/inventory/notifications/:id` y `/api/v1/inventory/notifications/read-all`
+- `/api/v1/inventory/platform/announcements` para crear, publicar y archivar avisos (solo `SUPERADMIN`)
+- `/api/v1/inventory/platform/companies/:companyId/members` para asociar/desasociar empleados y `/api/v1/inventory/platform/users/:userId/employment-history` para ver su historial (solo `SUPERADMIN`)
 
 El prefijo efectivo depende de `API_PREFIX` en la configuración de entorno.
 
