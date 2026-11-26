@@ -176,7 +176,14 @@ class ReportsService {
    */
   async cashFlow(userId, query = {}) {
     const range = dateRange(query);
-    const [sales = [], purchases = [], payments = [], withdrawals = []] = await buildCashFlow(
+    const [
+      sales = [],
+      purchases = [],
+      payments = [],
+      withdrawals = [],
+      layawayPayments = [],
+      layawayRefunds = [],
+    ] = await buildCashFlow(
       this.models,
       userId,
       range.from,
@@ -188,13 +195,21 @@ class ReportsService {
     const paymentsTotal = roundMoney(payments[0]?.total ?? 0);
     const withdrawalTotals = withdrawals[0]?.totals?.[0] ?? { count: 0, total: 0 };
     const withdrawalsTotal = roundMoney(withdrawalTotals.total);
-    const outflowsTotal = roundMoney(purchasesTotal + paymentsTotal + withdrawalsTotal);
+    const layawayPaymentsTotal = roundMoney(layawayPayments[0]?.total ?? 0);
+    const layawayRefundsTotal = roundMoney(layawayRefunds[0]?.total ?? 0);
+    const outflowsTotal = roundMoney(
+      purchasesTotal + paymentsTotal + withdrawalsTotal + layawayRefundsTotal,
+    );
+    const inflowsTotal = roundMoney(salesTotal + layawayPaymentsTotal);
 
     return {
       range: { from: query.from, to: query.to },
       inflows: {
         sales: salesTotal,
         salesCount: sales[0]?.count ?? 0,
+        layawayPayments: layawayPaymentsTotal,
+        layawayPaymentsCount: layawayPayments[0]?.count ?? 0,
+        total: inflowsTotal,
       },
       outflows: {
         purchases: purchasesTotal,
@@ -203,9 +218,11 @@ class ReportsService {
         employeePaymentsCount: payments[0]?.count ?? 0,
         withdrawals: withdrawalsTotal,
         withdrawalsCount: withdrawalTotals.count,
+        layawayRefunds: layawayRefundsTotal,
+        layawayRefundsCount: layawayRefunds[0]?.count ?? 0,
         total: outflowsTotal,
       },
-      net: roundMoney(salesTotal - outflowsTotal),
+      net: roundMoney(inflowsTotal - outflowsTotal),
       withdrawalsByReason: (withdrawals[0]?.byReason ?? []).map((row) => ({
         reason: row.reason,
         label: CASH_WITHDRAWAL_REASON_LABELS[row.reason] ?? row.reason,

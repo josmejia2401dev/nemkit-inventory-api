@@ -45,6 +45,11 @@ const PERMISSIONS = Object.freeze({
     read: ['CASHIER', 'SELLER', 'WAITER'],
     write: ['CASHIER', 'SELLER', 'WAITER'],
   },
+  // Plan separe: caja/ventas lo operan; bodega solo consulta.
+  layaways: {
+    read: ['CASHIER', 'SELLER', 'WAREHOUSE'],
+    write: ['CASHIER', 'SELLER'],
+  },
   customers: {
     read: ['CASHIER', 'SELLER', 'WAITER', 'COURIER'],
     write: ['CASHIER', 'SELLER', 'WAITER'],

@@ -102,6 +102,64 @@ class SalesService extends InventoryDocumentService {
   }
 
   /**
+   * Crea la venta de un Plan separe sin volver a descontar stock: el stock ya
+   * salió al reservar el producto. Se registra una sola vez por layaway.
+   */
+  async createFromLayaway({ layaway, customer, userId, date, paid, session, delivery = null }) {
+    const existing = await this.repository.findByLayawayInSession(userId, layaway._id, session);
+    if (existing) return existing;
+
+    const saleId = UniqueNumberUtil.generateRaw();
+    const saleData = {
+      _id: saleId,
+      userId,
+      customerId: layaway.customerId,
+      customerSnapshot: layaway.customerSnapshot,
+      date,
+      status: DOCUMENT_STATUS.COMPLETED,
+      orderStatus: ORDER_STATUS.DELIVERED,
+      orderChannel: layaway.handoverMode === 'delivery' ? 'delivery' : 'on_site',
+      paymentStatus: paid ? PAYMENT_STATUS.PAID : PAYMENT_STATUS.PENDING,
+      paidAt: paid ? date : null,
+      items: layaway.items.map((item) => ({ ...item })),
+      total: layaway.total,
+      movementId: layaway.reservationMovementId,
+      layawayId: layaway._id,
+      settledByLayaway: true,
+      handoverMode: layaway.handoverMode,
+      notes: layaway.notes ?? '',
+      createdBy: userId,
+      updatedBy: userId,
+    };
+
+    const [sale] = await this.repository.model.create([saleData], { session });
+
+    if (customer) {
+      const { recordCustomerPurchase } = this.#getStatisticsOperations();
+      await recordCustomerPurchase(customer, layaway.total, date, userId, session);
+    }
+
+    if (delivery && layaway.handoverMode === 'delivery') {
+      await createDeliveryForSale({
+        document: sale,
+        delivery,
+        contact: customer,
+        items: sale.items,
+        fromKitchen: false,
+        userId,
+        session,
+      });
+    }
+
+    return this.repository.normalizeOutput(sale);
+  }
+
+  /** Marca como pagada la venta de un Plan separe al completar el saldo. */
+  markLayawaySalePaid(saleId, userId, paidAt, session) {
+    return this.repository.markLayawaySalePaidInSession(saleId, userId, paidAt, session);
+  }
+
+  /**
    * Anula una venta: repone el stock, registra un movimiento de reversa,
    * marca la venta como anulada y revierte las métricas del cliente. Todo en
    * una transacción. Idempotente frente a ventas ya anuladas.
@@ -112,18 +170,32 @@ class SalesService extends InventoryDocumentService {
    * @param {string} [options.reason]     - código de motivo (CANCEL_REASON)
    * @param {string} [options.note]       - nota libre opcional (p. ej. para 'other')
    */
-  async voidSale(saleId, userId, { reason = '', note = '', actorId = null, actorName = '' } = {}) {
+  voidSale(saleId, userId, options = {}) {
+    return this.repository.withTransaction((session) => (
+      this.voidSaleInSession(saleId, userId, options, session)
+    ));
+  }
+
+  async voidSaleInSession(saleId, userId, {
+    reason = '',
+    note = '',
+    actorId = null,
+    actorName = '',
+    skipRestock = false,
+    forceReverseLoyalty = false,
+  } = {}, session) {
     const id = positiveInteger(saleId, 'saleId');
     const reasonCode = CANCEL_REASONS.includes(reason) ? reason : '';
     const voidNote = typeof note === 'string' ? note.trim().slice(0, 300) : '';
 
-    return this.repository.withTransaction(async (session) => {
       const sale = await this.repository.findOwnedInSession(id, userId, session);
       if (!sale) throw HttpError.notFound('Sale not found');
       if (sale.status === DOCUMENT_STATUS.VOID) {
         throw HttpError.conflict('Sale is already void');
       }
 
+      let voidMovementId = null;
+      if (!skipRestock) {
       // Reponer stock EXPANDIENDO recetas, igual que se descontó en la venta:
       // un plato (prepared) no repone stock propio, repone el de sus insumos.
       const soldIds = [...new Set(sale.items.map((item) => item.productId))];
@@ -156,7 +228,6 @@ class SalesService extends InventoryDocumentService {
       }
       // Movimiento de reversa solo si hubo stock que reponer. Una venta de solo
       // platos sin receta no descontó nada, así que tampoco genera reversa.
-      let voidMovementId = null;
       if (restock.size > 0) {
         voidMovementId = UniqueNumberUtil.generateRaw();
         await movementsService.recordDocumentMovement({
@@ -179,6 +250,7 @@ class SalesService extends InventoryDocumentService {
           updatedBy: userId,
         }, session);
       }
+      }
 
       // Marcar la venta como anulada, guardando el motivo de cancelación.
       await this.repository.updateOwnedInSession(
@@ -199,15 +271,14 @@ class SalesService extends InventoryDocumentService {
 
       await deliveriesService.cancelBySale(id, userId, session);
 
-      // Revertir métricas de fidelización solo si la venta llegó a cobrarse
-      // (una venta "por cobrar" nunca sumó al cliente).
-      if (sale.paymentStatus === PAYMENT_STATUS.PAID) {
+      // Revertir métricas de fidelización si la venta llegó a cobrarse o si el
+      // flujo de Plan separe ya la había registrado al entregar.
+      if (sale.paymentStatus === PAYMENT_STATUS.PAID || forceReverseLoyalty) {
         const { reverseCustomerPurchase } = this.#getStatisticsOperations();
         await reverseCustomerPurchase(sale.customerId, sale.total, userId, session);
       }
 
-      return { id, status: DOCUMENT_STATUS.VOID, voidMovementId };
-    });
+  return { id, status: DOCUMENT_STATUS.VOID, voidMovementId };
   }
 
   hasCustomerSales(userId, customerId) {

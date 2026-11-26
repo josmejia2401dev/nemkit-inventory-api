@@ -77,6 +77,22 @@ class SalesRepository extends InventoryDocumentRepository {
     return this._applyTimeout(this.model.exists({ userId, customerId }));
   }
 
+  findByLayawayInSession(userId, layawayId, session) {
+    return this.model.findOne({
+      userId,
+      layawayId,
+      recordStatus: RECORD_STATUS.ACTIVE,
+    }).session(session).lean();
+  }
+
+  markLayawaySalePaidInSession(saleId, userId, paidAt, session) {
+    return this.model.updateOne(
+      { _id: saleId, userId, recordStatus: RECORD_STATUS.ACTIVE },
+      { $set: { paymentStatus: PAYMENT_STATUS.PAID, paidAt, updatedBy: userId } },
+      { session },
+    );
+  }
+
   async activeKitchenOrderCountsByTable(userId) {
     const activeStatuses = [KITCHEN_STATUS.PENDING, KITCHEN_STATUS.PREPARING, KITCHEN_STATUS.READY];
     return applyMongoTimeout(this.model.aggregate([

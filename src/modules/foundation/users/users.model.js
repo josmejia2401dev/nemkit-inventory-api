@@ -14,6 +14,8 @@ const UserSchema = applyPlatformSchema({
   companyName:  { type: String, trim: true, default: '', maxlength: 100 },
   // Tipo de negocio del dueño: activa funciones específicas (p. ej. cocina).
   businessType: { type: String, enum: ['retail', 'restaurant'], default: 'retail' },
+  // Configuración del Plan separe. La valida y normaliza el dominio de inventario.
+  layawaySettings: { type: mongoose.Schema.Types.Mixed, default: null },
   // Referencia al plan. Precio y límites se resuelven siempre desde
   // `limits.constants.js`; aquí solo se guarda el código del plan.
   limitUsage: {

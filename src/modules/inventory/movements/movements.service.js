@@ -72,7 +72,7 @@ class MovementsService extends BaseService {
   }
 
   async create(data, userId) {
-    if ([MOVEMENT_TYPE.PURCHASE, MOVEMENT_TYPE.SALE].includes(data.type)) {
+    if ([MOVEMENT_TYPE.PURCHASE, MOVEMENT_TYPE.SALE, MOVEMENT_TYPE.LAYAWAY_RESERVE, MOVEMENT_TYPE.LAYAWAY_RELEASE].includes(data.type)) {
       throw HttpError.badRequest('Purchases and sales must be registered through their documents');
     }
 
@@ -164,7 +164,7 @@ class MovementsService extends BaseService {
     }
 
     const defaultDirection = TYPE_DIRECTIONS[data.type];
-    if ([MOVEMENT_TYPE.PURCHASE, MOVEMENT_TYPE.SALE].includes(data.type)) {
+    if ([MOVEMENT_TYPE.PURCHASE, MOVEMENT_TYPE.SALE, MOVEMENT_TYPE.LAYAWAY_RESERVE, MOVEMENT_TYPE.LAYAWAY_RELEASE].includes(data.type)) {
       throw HttpError.badRequest('Purchases and sales must be registered through their documents');
     }
     if (!defaultDirection && data.type !== MOVEMENT_TYPE.MANUAL_ADJUSTMENT) {

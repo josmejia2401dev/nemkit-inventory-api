@@ -27,6 +27,9 @@ const MOVEMENT_TYPE = Object.freeze({
   DAMAGE: 'damage',
   LOSS: 'loss',
   INTERNAL_USE: 'internal_use',
+  // Reserva y liberación de stock de un Plan separe.
+  LAYAWAY_RESERVE: 'layaway_reserve',
+  LAYAWAY_RELEASE: 'layaway_release',
 });
 
 /** Sentido del cambio de stock por artículo del movimiento. */
@@ -38,6 +41,8 @@ const MOVEMENT_DIRECTION = Object.freeze({
 const MOVEMENT_SOURCE_TYPE = Object.freeze({
   PURCHASE: 'purchase',
   SALE: 'sale',
+  LAYAWAY_RESERVE: 'layaway_reserve',
+  LAYAWAY_RELEASE: 'layaway_release',
 });
 
 const DOCUMENT_STATUS = Object.freeze({
@@ -59,6 +64,97 @@ const ORDER_STATUS = Object.freeze({
 const PAYMENT_STATUS = Object.freeze({
   PAID: 'paid',       // cobrada (venta de mostrador o cobro registrado)
   PENDING: 'pending', // venta de restaurante o domicilio pendiente de cobro
+});
+
+/** Ciclo comercial de un Plan separe. */
+const LAYAWAY_STATUS = Object.freeze({
+  ACTIVE: 'active',       // saldo > 0, con o sin entrega
+  READY: 'ready',         // saldo 0, pendiente de entrega
+  COMPLETED: 'completed', // saldo 0 y entregado
+  CANCELLED: 'cancelled',
+});
+
+/** Frecuencia sugerida de abonos. */
+const LAYAWAY_FREQUENCY = Object.freeze({
+  WEEKLY: 'weekly',
+  BIWEEKLY: 'biweekly',
+  MONTHLY: 'monthly',
+  CUSTOM: 'custom',
+});
+
+/** Medios de pago aceptados para abonos. */
+const LAYAWAY_PAYMENT_METHOD = Object.freeze({
+  CASH: 'cash',
+  CARD: 'card',
+  TRANSFER: 'transfer',
+  NEQUI: 'nequi',
+  DAVIPLATA: 'daviplata',
+  OTHER: 'other',
+});
+
+/** Forma de entrega del producto separado. */
+const LAYAWAY_HANDOVER_MODE = Object.freeze({
+  PICKUP: 'pickup',
+  DELIVERY: 'delivery',
+  IMMEDIATE: 'immediate',
+});
+
+const LAYAWAY_HANDOVER_STATUS = Object.freeze({
+  PENDING: 'pending',
+  DELIVERED: 'delivered',
+});
+
+/** Política de entrega inmediata sin abono. */
+const LAYAWAY_ZERO_DOWN_POLICY = Object.freeze({
+  BLOCKED: 'blocked',
+  ADMIN_AUTHORIZATION: 'admin_authorization',
+  ALLOWED: 'allowed',
+});
+
+/** Política de devolución/retención al cancelar. */
+const LAYAWAY_CANCELLATION_POLICY = Object.freeze({
+  REFUND_ALL: 'refund_all',
+  RETAIN_PERCENT: 'retain_percent',
+  MANUAL: 'manual',
+});
+
+/** Condición del producto devuelto en una cancelación. */
+const LAYAWAY_RETURN_CONDITION = Object.freeze({
+  RESELLABLE: 'resellable',
+  DAMAGED: 'damaged',
+  NOT_RETURNED: 'not_returned',
+});
+
+/** Tipo de abono: cuota inicial o abono posterior. */
+const LAYAWAY_PAYMENT_TYPE = Object.freeze({
+  INITIAL: 'initial',
+  INSTALLMENT: 'installment',
+});
+
+const LAYAWAY_STATUSES = Object.freeze(Object.values(LAYAWAY_STATUS));
+const LAYAWAY_FREQUENCIES = Object.freeze(Object.values(LAYAWAY_FREQUENCY));
+const LAYAWAY_PAYMENT_METHODS = Object.freeze(Object.values(LAYAWAY_PAYMENT_METHOD));
+const LAYAWAY_HANDOVER_MODES = Object.freeze(Object.values(LAYAWAY_HANDOVER_MODE));
+const LAYAWAY_HANDOVER_STATUSES = Object.freeze(Object.values(LAYAWAY_HANDOVER_STATUS));
+const LAYAWAY_ZERO_DOWN_POLICIES = Object.freeze(Object.values(LAYAWAY_ZERO_DOWN_POLICY));
+const LAYAWAY_CANCELLATION_POLICIES = Object.freeze(Object.values(LAYAWAY_CANCELLATION_POLICY));
+const LAYAWAY_RETURN_CONDITIONS = Object.freeze(Object.values(LAYAWAY_RETURN_CONDITION));
+const LAYAWAY_PAYMENT_TYPES = Object.freeze(Object.values(LAYAWAY_PAYMENT_TYPE));
+const LAYAWAY_CANCEL_REASONS = Object.freeze([
+  'customer_changed',
+  'payment_default',
+  'out_of_stock',
+  'duplicate',
+  'other',
+]);
+const LAYAWAY_DEFAULT_SETTINGS = Object.freeze({
+  minInitialPercent: 0,
+  maxTermMonths: 60,
+  defaultFrequency: LAYAWAY_FREQUENCY.MONTHLY,
+  cancellationPolicy: LAYAWAY_CANCELLATION_POLICY.MANUAL,
+  retentionPercent: 0,
+  allowImmediateHandover: true,
+  zeroDownImmediatePolicy: LAYAWAY_ZERO_DOWN_POLICY.ADMIN_AUTHORIZATION,
 });
 
 /**
@@ -209,6 +305,26 @@ module.exports = {
   ORDER_STATUSES,
   PAYMENT_STATUS,
   PAYMENT_STATUSES,
+  LAYAWAY_STATUS,
+  LAYAWAY_STATUSES,
+  LAYAWAY_FREQUENCY,
+  LAYAWAY_FREQUENCIES,
+  LAYAWAY_PAYMENT_METHOD,
+  LAYAWAY_PAYMENT_METHODS,
+  LAYAWAY_PAYMENT_TYPE,
+  LAYAWAY_PAYMENT_TYPES,
+  LAYAWAY_HANDOVER_MODE,
+  LAYAWAY_HANDOVER_MODES,
+  LAYAWAY_HANDOVER_STATUS,
+  LAYAWAY_HANDOVER_STATUSES,
+  LAYAWAY_ZERO_DOWN_POLICY,
+  LAYAWAY_ZERO_DOWN_POLICIES,
+  LAYAWAY_CANCELLATION_POLICY,
+  LAYAWAY_CANCELLATION_POLICIES,
+  LAYAWAY_RETURN_CONDITION,
+  LAYAWAY_RETURN_CONDITIONS,
+  LAYAWAY_CANCEL_REASONS,
+  LAYAWAY_DEFAULT_SETTINGS,
   CANCEL_REASON,
   CANCEL_REASONS,
   EMPLOYEE_ROLE,

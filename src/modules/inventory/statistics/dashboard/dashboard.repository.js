@@ -18,11 +18,11 @@ class DashboardRepository {
   }
 
   async dashboard(userId, since) {
-    const { Product, Movement, Sale, Customer, Delivery } = this.models;
+    const { Product, Movement, Sale, Customer, Delivery, Layaway } = this.models;
     const physicalProducts = { userId, type: { $ne: PRODUCT_TYPE.PREPARED }, recordStatus: RECORD_STATUS.ACTIVE };
     const activePhysicalProducts = { ...physicalProducts, status: PRODUCT_STATUS.ACTIVE };
     const activeMovements = { userId, recordStatus: RECORD_STATUS.ACTIVE };
-    const [totalProducts, outOfStock, lowStock, inventoryValueRows, recentMovements, topProducts, customers, topEmployees, deliveryStats] = await Promise.all([
+    const [totalProducts, outOfStock, lowStock, inventoryValueRows, recentMovements, topProducts, customers, topEmployees, deliveryStats, layaways] = await Promise.all([
       withTimeout(Product.countDocuments(activePhysicalProducts)),
       withTimeout(Product.countDocuments({ ...activePhysicalProducts, stock: 0 })),
       withTimeout(Product.countDocuments({
@@ -44,6 +44,7 @@ class DashboardRepository {
       this.#customerDashboard(Customer, userId, since),
       this.#employeeDashboard(Sale, userId, since),
       this.#deliveryDashboard(Delivery, userId),
+      this.#layawayDashboard(Layaway, userId),
     ]);
 
     const productIds = topProducts.map((row) => row._id);
@@ -65,6 +66,7 @@ class DashboardRepository {
       customers,
       topEmployees,
       deliveries: deliveryStats,
+      layaways,
     };
   }
 
@@ -87,6 +89,45 @@ class DashboardRepository {
       { $limit: 5 },
       { $project: { _id: 0, employeeId: '$_id', employeeName: 1, salesCount: 1, revenue: 1 } },
     ]));
+  }
+
+
+  async #layawayDashboard(Layaway, userId) {
+    const now = new Date();
+    const [row] = await withTimeout(Layaway.aggregate([
+      {
+        $match: {
+          userId,
+          recordStatus: RECORD_STATUS.ACTIVE,
+          status: { $in: ['active', 'ready'] },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          activeCount: { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } },
+          activeBalance: { $sum: { $cond: [{ $eq: ['$status', 'active'] }, '$balance', 0] } },
+          overdueCount: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$status', 'active'] },
+                    { $gt: ['$balance', 0] },
+                    { $lt: ['$dueDate', now] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          readyCount: { $sum: { $cond: [{ $eq: ['$status', 'ready'] }, 1, 0] } },
+        },
+      },
+      { $project: { _id: 0 } },
+    ]));
+    return row ?? { activeCount: 0, activeBalance: 0, overdueCount: 0, readyCount: 0 };
   }
 
   async #deliveryDashboard(Delivery, userId) {
