@@ -7,7 +7,6 @@ const {
   LAYAWAY_HANDOVER_MODES,
   LAYAWAY_RETURN_CONDITIONS,
   LAYAWAY_CANCEL_REASONS,
-  LAYAWAY_ZERO_DOWN_POLICIES,
   LAYAWAY_CANCELLATION_POLICIES,
 } = require('../inventory.constants');
 
@@ -25,7 +24,6 @@ const createLayawaySchema = createValidator({
   delivery: { type: 'object' },
   notes: { type: 'string', trim: true, maxLength: 1000 },
   employeeId: { type: 'number', min: 1 },
-  authorizationToken: { type: 'string', trim: true, maxLength: 200 },
 });
 
 const updateLayawaySchema = createValidator({
@@ -58,14 +56,6 @@ const cancelSchema = createValidator({
   refundMethod: { type: 'string', enum: LAYAWAY_PAYMENT_METHODS },
 });
 
-const authorizationSchema = createValidator({
-  adminEmail: { type: 'email', required: true, trim: true, lowercase: true, maxLength: 254 },
-  adminPassword: { type: 'string', required: true, minLength: 1, maxLength: 128 },
-  customerId: { type: 'number', required: true, min: 1 },
-  total: { type: 'number', required: true, min: 0 },
-  reason: { type: 'string', trim: true, maxLength: 300 },
-});
-
 const settingsSchema = createValidator({
   minInitialPercent: { type: 'number', min: 0, max: 100 },
   maxTermMonths: { type: 'number', min: 1, max: 60 },
@@ -73,7 +63,6 @@ const settingsSchema = createValidator({
   cancellationPolicy: { type: 'string', enum: LAYAWAY_CANCELLATION_POLICIES },
   retentionPercent: { type: 'number', min: 0, max: 100 },
   allowImmediateHandover: { type: 'boolean' },
-  zeroDownImmediatePolicy: { type: 'string', enum: LAYAWAY_ZERO_DOWN_POLICIES },
 });
 
 module.exports = {
@@ -82,6 +71,5 @@ module.exports = {
   paymentSchema,
   deliverSchema,
   cancelSchema,
-  authorizationSchema,
   settingsSchema,
 };

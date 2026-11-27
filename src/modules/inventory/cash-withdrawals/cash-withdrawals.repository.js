@@ -1,7 +1,7 @@
 'use strict';
 
 const { MongoRepository, RECORD_STATUS } = require('nemkit');
-const { applyMongoTimeout } = require('../../../config/mongo-query');
+const { applyMongoTimeout } = require('nemkit');
 const CashWithdrawal = require('./cash-withdrawals.model');
 
 class CashWithdrawalsRepository extends MongoRepository {

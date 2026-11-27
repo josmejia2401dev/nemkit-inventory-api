@@ -14,14 +14,12 @@ const customersRoutes = require('../modules/inventory/customers/customers.routes
 const purchasesRoutes = require('../modules/inventory/purchases/purchases.routes');
 const salesRoutes = require('../modules/inventory/sales/sales.routes');
 const layawaysRoutes = require('../modules/inventory/layaways/layaways.routes');
-const kitchenRoutes = require('../modules/inventory/kitchen/kitchen.routes');
 const reportsRoutes = require('../modules/inventory/reports/reports.routes');
 const employeePaymentsRoutes = require('../modules/inventory/employee-payments/employee-payments.routes');
 const deliveriesRoutes = require('../modules/inventory/deliveries/deliveries.routes');
-const tablesRoutes = require('../modules/inventory/tables/tables.routes');
-const { employeesController } = require('../modules/foundation/employees/employees.controller');
+const { employeeOptionsController } = require('../modules/inventory/employee-options/employee-options.controller');
 
-// Connect cohesive domain services before any inventory request is handled.
+// Conecta los servicios de dominio antes de atender requests.
 require('../modules/inventory/inventory.module');
 
 const router = express.Router();
@@ -30,7 +28,6 @@ router.use('/products', authorizeResource('products'), productsRoutes);
 router.use('/categories', authorizeResource('categories'), categoriesRoutes);
 router.use('/movements', authorizeResource('movements'), movementsRoutes);
 router.use('/statistics', statisticsRoutes);
-// Legacy profile URL remains an adapter; analytics are owned by statistics.
 router.get('/customers/:id/profile', authorizeResource('customers'), loyaltyController.customerProfile.bind(loyaltyController));
 router.use('/dashboard', dashboardRoutes);
 router.use('/suppliers', authorizeResource('suppliers'), suppliersRoutes);
@@ -38,12 +35,10 @@ router.use('/customers', authorizeResource('customers'), customersRoutes);
 router.use('/purchases', authorizeResource('purchases'), purchasesRoutes);
 router.use('/sales', authorizeResource('sales'), salesRoutes);
 router.use('/layaways', authorizeResource('layaways'), layawaysRoutes);
-router.use('/kitchen', authorizeResource('kitchen'), kitchenRoutes);
 router.use('/reports', authorizeResource('reports'), reportsRoutes);
 router.use('/employee-payments', authorizeResource('employee-payments'), employeePaymentsRoutes);
 router.use('/cash-withdrawals', authorizeResource('cash-withdrawals'), cashWithdrawalsRoutes);
-router.get('/employee-options', authorizeResource('employee-options'), employeesController.options.bind(employeesController));
+router.get('/employee-options', authorizeResource('employee-options'), employeeOptionsController.options.bind(employeeOptionsController));
 router.use('/deliveries', authorizeResource('deliveries'), deliveriesRoutes);
-router.use('/tables', authorizeResource('tables'), tablesRoutes);
 
 module.exports = router;

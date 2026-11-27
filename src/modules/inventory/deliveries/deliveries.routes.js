@@ -1,13 +1,14 @@
 'use strict';
 
 const { express } = require('nemkit');
-const { requireRole } = require('../../../middlewares/authorize.middleware');
+const { foundation } = require('../../../config/foundation');
+const { requireRole } = foundation.middlewares;
 const { deliveriesController: c } = require('./deliveries.controller');
 
 const router = express.Router();
 
 // Gestión (no la hace el propio domiciliario): asignar y anular.
-const MANAGEMENT = ['ADMIN', 'CASHIER', 'SELLER', 'WAITER'];
+const MANAGEMENT = ['ADMIN', 'CASHIER', 'SELLER'];
 
 router.get('/', c.list.bind(c));
 router.get('/:id', c.get.bind(c));

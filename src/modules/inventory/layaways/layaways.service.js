@@ -1,22 +1,19 @@
 'use strict';
 
-const crypto = require('crypto');
 const {
   BaseService,
   HttpError,
   UniqueNumberUtil,
   RECORD_STATUS,
-  comparePassword,
 } = require('nemkit');
 const { LayawaysRepository } = require('./layaways.repository');
+const { LayawaySettingsRepository } = require('./layaway-settings.repository');
 const { LayawayPaymentsRepository } = require('./layaway-payments.repository');
-const { LayawayAuthorizationsRepository } = require('./layaway-authorizations.repository');
 const { productsService } = require('../products/products.service');
 const { customersService } = require('../customers/customers.service');
 const { movementsService } = require('../movements/movements.service');
 const { salesService } = require('../sales/sales.service');
-const { employeesService } = require('../../foundation/employees/employees.service');
-const { usersService } = require('../../foundation/users/users.service');
+const { employeesService } = require('../../../config/foundation-services.js');
 const {
   pagination,
   positiveInteger,
@@ -37,19 +34,12 @@ const {
   LAYAWAY_HANDOVER_MODE,
   LAYAWAY_HANDOVER_MODES,
   LAYAWAY_HANDOVER_STATUS,
-  LAYAWAY_ZERO_DOWN_POLICY,
   LAYAWAY_CANCELLATION_POLICY,
   LAYAWAY_RETURN_CONDITION,
   LAYAWAY_RETURN_CONDITIONS,
   LAYAWAY_CANCEL_REASONS,
   LAYAWAY_DEFAULT_SETTINGS,
 } = require('../inventory.constants');
-
-const AUTHORIZATION_TTL_MS = 10 * 60 * 1000;
-
-function hashToken(token) {
-  return crypto.createHash('sha256').update(token).digest('hex');
-}
 
 function addMonths(date, months) {
   const result = new Date(date);
@@ -90,20 +80,20 @@ class LayawaysService extends BaseService {
   constructor() {
     super(new LayawaysRepository());
     this.paymentsRepository = new LayawayPaymentsRepository();
-    this.authorizationsRepository = new LayawayAuthorizationsRepository();
+    this.settingsRepository = new LayawaySettingsRepository();
   }
 
   // ── Configuración por empresa ──────────────────────────────────────────────
 
   async getSettings(userId) {
-    const user = await usersService.getById(userId);
-    return this.#normalizeSettings(user?.layawaySettings);
+    const settings = await this.settingsRepository.findByUser(userId);
+    return this.#normalizeSettings(settings);
   }
 
   async updateSettings(userId, data, actorId) {
     const current = await this.getSettings(userId);
     const next = this.#normalizeSettings({ ...current, ...data });
-    await usersService.updateById(userId, { layawaySettings: next }, actorId);
+    await this.settingsRepository.save(userId, next, actorId);
     return next;
   }
 
@@ -116,9 +106,6 @@ class LayawaysService extends BaseService {
     const cancellationPolicy = Object.values(LAYAWAY_CANCELLATION_POLICY).includes(value.cancellationPolicy)
       ? value.cancellationPolicy
       : LAYAWAY_DEFAULT_SETTINGS.cancellationPolicy;
-    const zeroDown = Object.values(LAYAWAY_ZERO_DOWN_POLICY).includes(value.zeroDownImmediatePolicy)
-      ? value.zeroDownImmediatePolicy
-      : LAYAWAY_DEFAULT_SETTINGS.zeroDownImmediatePolicy;
     return {
       minInitialPercent: Number.isFinite(Number(value.minInitialPercent))
         ? clamp(value.minInitialPercent, 0, 100)
@@ -132,70 +119,7 @@ class LayawaysService extends BaseService {
         ? clamp(value.retentionPercent, 0, 100)
         : LAYAWAY_DEFAULT_SETTINGS.retentionPercent,
       allowImmediateHandover: value.allowImmediateHandover !== false,
-      zeroDownImmediatePolicy: zeroDown,
     };
-  }
-
-  // ── Autorización de entrega inmediata con 0 % ─────────────────────────────
-
-  async authorize(userId, actorId, data) {
-    const email = typeof data.adminEmail === 'string' ? data.adminEmail.trim().toLowerCase() : '';
-    const password = typeof data.adminPassword === 'string' ? data.adminPassword : '';
-    if (!email || !password) throw HttpError.badRequest('Admin email and password are required');
-
-    const admin = await usersService.findByEmail(email);
-    if (!admin || admin.recordStatus !== RECORD_STATUS.ACTIVE) {
-      throw HttpError.unauthorized('Invalid administrator credentials');
-    }
-
-    const validPassword = await comparePassword(password, admin.passwordHash);
-    if (!validPassword) throw HttpError.unauthorized('Invalid administrator credentials');
-    if (!(admin.roles ?? []).includes('ADMIN')) {
-      throw HttpError.forbidden('Administrator access required');
-    }
-
-    const adminCompanyId = admin.userId ?? admin.id;
-    if (adminCompanyId !== userId) {
-      throw HttpError.forbidden('The administrator belongs to another company');
-    }
-
-    const customerId = positiveInteger(data.customerId, 'customerId');
-    const total = roundMoney(Number(data.total));
-    if (!Number.isFinite(total) || total < 0) throw HttpError.badRequest('total must be a non-negative number');
-
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + AUTHORIZATION_TTL_MS);
-    const authorization = await this.authorizationsRepository.create({
-      _id: UniqueNumberUtil.generateRaw(),
-      userId,
-      customerId,
-      total,
-      requestedBy: actorId,
-      authorizedBy: admin.id,
-      authorizedByName: admin.fullName ?? '',
-      method: 'password',
-      reason: typeof data.reason === 'string' ? data.reason.trim().slice(0, 300) : '',
-      tokenHash: hashToken(token),
-      expiresAt,
-    }, actorId);
-
-    return {
-      authorizationId: authorization.id ?? authorization._id,
-      token,
-      expiresAt,
-    };
-  }
-
-  async #consumeAuthorization(userId, customerId, total, token, session) {
-    if (typeof token !== 'string' || !token.trim()) return null;
-    const authorization = await this.authorizationsRepository.consume(
-      hashToken(token.trim()),
-      userId,
-      customerId,
-      total,
-      session,
-    );
-    return authorization ?? null;
   }
 
   // ── Listado y detalle ─────────────────────────────────────────────────────
@@ -382,29 +306,6 @@ class LayawaysService extends BaseService {
       const balance = roundMoney(total - initialPayment);
       const isImmediate = handoverMode === LAYAWAY_HANDOVER_MODE.IMMEDIATE;
 
-      let authorization = null;
-      if (isImmediate && initialPayment === 0) {
-        if (settings.zeroDownImmediatePolicy === LAYAWAY_ZERO_DOWN_POLICY.BLOCKED) {
-          throw new HttpError(409, 'Immediate handover with zero initial payment is blocked', {
-            code: 'ZERO_DOWN_AUTHORIZATION_REQUIRED',
-          });
-        }
-        if (settings.zeroDownImmediatePolicy === LAYAWAY_ZERO_DOWN_POLICY.ADMIN_AUTHORIZATION) {
-          authorization = await this.#consumeAuthorization(
-            userId,
-            customerId,
-            total,
-            data.authorizationToken,
-            session,
-          );
-          if (!authorization) {
-            throw new HttpError(409, 'Administrator authorization is required', {
-              code: 'ZERO_DOWN_AUTHORIZATION_REQUIRED',
-            });
-          }
-        }
-      }
-
       const { employeeId, employeeSnapshot } = await employeesService.resolveResponsible(
         userId,
         data.employeeId,
@@ -478,17 +379,6 @@ class LayawaysService extends BaseService {
           : LAYAWAY_HANDOVER_STATUS.PENDING,
         deliveredAt: isImmediate ? startDate : null,
         delivery,
-        authorization: authorization
-          ? {
-            required: true,
-            authorizedBy: authorization.authorizedBy,
-            authorizedByName: authorization.authorizedByName,
-            authorizedAt: authorization.usedAt ?? new Date(),
-            method: authorization.method ?? 'password',
-            note: authorization.reason ?? '',
-            requestId: authorization._id ?? null,
-          }
-          : null,
         settingsSnapshot: settings,
         reservationMovementId,
         releaseMovementId: null,

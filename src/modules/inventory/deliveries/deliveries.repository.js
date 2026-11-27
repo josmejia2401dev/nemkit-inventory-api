@@ -2,8 +2,8 @@
 
 const { MongoRepository, RECORD_STATUS } = require('nemkit');
 const Delivery = require('./deliveries.model');
-const { DELIVERY_STATUS, KITCHEN_TO_DELIVERY_STATUS } = require('../inventory.constants');
-const { applyMongoTimeout } = require('../../../config/mongo-query');
+const { DELIVERY_STATUS } = require('../inventory.constants');
+const { applyMongoTimeout } = require('nemkit');
 
 class DeliveriesRepository extends MongoRepository {
   constructor() {
@@ -21,27 +21,6 @@ class DeliveriesRepository extends MongoRepository {
       saleId: { $in: saleIds },
       recordStatus: RECORD_STATUS.ACTIVE,
     }).select('saleId status courierSnapshot.name').lean());
-  }
-
-  async syncFromKitchen(saleId, userId, kitchenStatus, session) {
-    const target = KITCHEN_TO_DELIVERY_STATUS[kitchenStatus];
-    if (!target) return;
-
-    const delivery = await this._applyTimeout(this.model.findOne({
-      saleId,
-      userId,
-      recordStatus: RECORD_STATUS.ACTIVE,
-    }).select('_id status').session(session).lean());
-    if (!delivery) return;
-
-    const kitchenPhase = [DELIVERY_STATUS.PENDING, DELIVERY_STATUS.PREPARING, DELIVERY_STATUS.READY];
-    if (!kitchenPhase.includes(delivery.status) || delivery.status === target) return;
-
-    await this._applyTimeout(this.model.updateOne(
-      { _id: delivery._id, userId, recordStatus: RECORD_STATUS.ACTIVE },
-      { $set: { status: target, updatedBy: userId } },
-      { session },
-    ));
   }
 
   async changeStatusInSession(id, userId, currentStatus, update, session) {

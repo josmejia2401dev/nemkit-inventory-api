@@ -8,7 +8,6 @@ const {
   LAYAWAY_HANDOVER_MODES,
   LAYAWAY_HANDOVER_STATUS,
   LAYAWAY_HANDOVER_STATUSES,
-  LAYAWAY_ZERO_DOWN_POLICIES,
   LAYAWAY_CANCELLATION_POLICIES,
   LAYAWAY_RETURN_CONDITIONS,
   LAYAWAY_PAYMENT_METHODS,
@@ -67,19 +66,6 @@ const LayawaySchema = applyPlatformSchema({
     default: null,
   },
 
-  authorization: {
-    type: {
-      required: { type: Boolean, default: false },
-      authorizedBy: { type: Number, default: null },
-      authorizedByName: { type: String, default: '' },
-      authorizedAt: { type: Date, default: null },
-      method: { type: String, enum: ['password', 'pin', 'remote'], default: 'password' },
-      note: { type: String, default: '', maxlength: 300 },
-      requestId: { type: Number, default: null },
-    },
-    default: null,
-  },
-
   settingsSnapshot: {
     type: {
       minInitialPercent: { type: Number, default: 0 },
@@ -87,7 +73,6 @@ const LayawaySchema = applyPlatformSchema({
       cancellationPolicy: { type: String, enum: LAYAWAY_CANCELLATION_POLICIES, default: 'manual' },
       retentionPercent: { type: Number, default: 0 },
       allowImmediateHandover: { type: Boolean, default: true },
-      zeroDownImmediatePolicy: { type: String, enum: LAYAWAY_ZERO_DOWN_POLICIES, default: 'admin_authorization' },
     },
     default: null,
   },

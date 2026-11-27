@@ -1,7 +1,8 @@
 'use strict';
 
 const { express } = require('nemkit');
-const { requireRole } = require('../../../../middlewares/authorize.middleware');
+const { foundation } = require('../../../../config/foundation.js');
+const { requireRole } = foundation.middlewares;
 const { reportsController: c } = require('./reports.controller');
 const router = express.Router();
 

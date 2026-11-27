@@ -1,38 +1,34 @@
 'use strict';
 
 const logger = require('./logger');
+const { foundation } = require('./foundation');
 
 /**
- * Sincroniza los índices declarados en los esquemas con la base de datos.
- * Idempotente. Si una colección tiene datos que violan un índice único nuevo
- * (p. ej. emails duplicados preexistentes), la sincronización de ese modelo
- * falla con un aviso claro, sin tumbar el arranque del servidor.
+ * Sincroniza los índices de foundation + dominio. Idempotente.
  */
 async function syncIndexes() {
   const models = [
-    require('../modules/foundation/users/users.model'),
-    require('../modules/foundation/tokens/tokens.model'),
+    ...Object.values(foundation.models),
     require('../modules/inventory/products/products.model'),
     require('../modules/inventory/categories/categories.model'),
     require('../modules/inventory/customers/customers.model'),
     require('../modules/inventory/suppliers/suppliers.model'),
-    require('../modules/foundation/employees/employees.model'),
     require('../modules/inventory/movements/movements.model'),
     require('../modules/inventory/purchases/purchases.model'),
     require('../modules/inventory/sales/sales.model'),
     require('../modules/inventory/deliveries/deliveries.model'),
-    require('../modules/inventory/tables/tables.model'),
     require('../modules/inventory/cash-withdrawals/cash-withdrawals.model'),
-    require('../modules/foundation/feedback/feedback.model'),
+    require('../modules/inventory/layaways/layaways.model'),
+    require('../modules/inventory/layaways/layaway-payments.model'),
+    require('../modules/inventory/layaways/layaway-settings.model'),
+    require('../modules/inventory/employee-payments/employee-payments.model'),
   ];
 
   for (const model of models) {
     try {
       await model.syncIndexes();
     } catch (error) {
-      logger.warn(`Index sync failed for ${model.modelName}. Check for data that violates a unique index (e.g. duplicate emails).`, {
-        error: error.message,
-      });
+      logger.warn(`Index sync failed for ${model.modelName}.`, { error: error.message });
     }
   }
 }

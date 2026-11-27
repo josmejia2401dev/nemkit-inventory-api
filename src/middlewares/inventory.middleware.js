@@ -1,8 +1,8 @@
 'use strict';
 
 const { HttpError } = require('nemkit');
-const { scopeCompany } = require('./users.middleware');
-const { scopeEmployee } = require('./employees.middleware');
+const { foundation } = require('../config/foundation');
+const { scopeCompany, scopeEmployee } = foundation.middlewares;
 
 async function scopeToUser(req, _res, next) {
   try {

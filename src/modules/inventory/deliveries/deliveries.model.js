@@ -14,15 +14,11 @@ const DeliveryItemSchema = new mongoose.Schema({
 
 const DeliverySchema = applyPlatformSchema({
   userId: { type: Number, required: true, index: true },
-  // ¿El pedido pasa por cocina? (restaurante). Si es true, el domiciliario solo
-  // puede recogerlo cuando la cocina lo marque "listo" (ready). En tienda (false)
-  // puede recogerlo desde el inicio.
-  fromKitchen: { type: Boolean, default: false },
-  // Venta asociada (opcional; en esta fase la gestión logística es independiente).
+  // Venta asociada (opcional; la gestión logística es independiente).
   saleId: { type: Number, default: null, index: true },
-  customerId: { type: Number, required: true, min: 1, index: true },
+  customerId: { type: Number, default: null, index: true },
   customerSnapshot: {
-    name: { type: String, required: true },
+    name: { type: String, default: 'Cliente' },
     phone: { type: String, default: '' },
   },
   address: { type: String, required: true, trim: true, maxlength: 300 },
@@ -35,14 +31,12 @@ const DeliverySchema = applyPlatformSchema({
   notes: { type: String, trim: true, default: '', maxlength: 1000 },
 
   status: { type: String, enum: DELIVERY_STATUSES, default: DELIVERY_STATUS.PENDING, index: true },
-
   // Domiciliario asignado (empleado rol courier).
   courierId: { type: Number, default: null, index: true },
   courierSnapshot: { name: { type: String, default: '' } },
 
   // Hitos de negocio (distintos de createdAt/updatedAt de auditoría).
   timeline: {
-    readyAt: { type: Date, default: null },      // cocina marcó listo para recoger
     pickedUpAt: { type: Date, default: null },   // el domiciliario lo recogió
     dispatchedAt: { type: Date, default: null }, // salió en ruta
     deliveredAt: { type: Date, default: null },

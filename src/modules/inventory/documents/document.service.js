@@ -1,7 +1,7 @@
 'use strict';
 
 const { BaseService, HttpError, RECORD_STATUS, UniqueNumberUtil } = require('nemkit');
-const { employeesService } = require('../../foundation/employees/employees.service');
+const { employeesService } = require('../../../config/foundation-services.js');
 const { productsService } = require('../products/products.service');
 const { movementsService } = require('../movements/movements.service');
 const { pagination, positiveInteger, parseDate } = require('../validation');
@@ -12,7 +12,6 @@ const {
   MOVEMENT_TYPE,
   MOVEMENT_DIRECTION,
   MOVEMENT_SOURCE_TYPE,
-  KITCHEN_STATUS,
   ORDER_STATUS,
 } = require('../inventory.constants');
 const { buildDocumentItems } = require('./pricing');
@@ -148,15 +147,10 @@ class InventoryDocumentService extends BaseService {
         }, session);
       }
 
-      // Las métricas de fidelización suman cuando la venta se cobra. Una venta
-      // pagada al instante (tienda) suma aquí; una "por cobrar" sumará al cobrar.
       // Hook dentro de la transacción (Ventas crea el domicilio asociado).
-      const normalizedData = documentData.kitchenStatus == null
-        ? data
-        : { ...data, kitchenStatus: documentData.kitchenStatus };
       await this.afterCreate({
         document,
-        data: normalizedData,
+        data,
         contact,
         items: documentItems,
         userId,
@@ -275,9 +269,6 @@ class InventoryDocumentService extends BaseService {
     documentItems,
     total,
   }) {
-    const hasTableNumber = typeof data.tableNumber === 'string' && data.tableNumber.trim().length > 0;
-    const kitchenStatus = data.kitchenStatus
-      ?? (isOut && hasTableNumber ? KITCHEN_STATUS.PENDING : null);
     const documentData = {
       _id: documentId,
       userId,
@@ -295,17 +286,9 @@ class InventoryDocumentService extends BaseService {
       documentData[this.contactField] = contactId;
       documentData[this.contactField === 'supplierId' ? 'supplierSnapshot' : 'customerSnapshot'] = this.#contactSnapshot(contact);
     }
-    // Restaurante: si la venta entra a cocina, nace como comanda pendiente.
-    if (kitchenStatus != null) {
-      documentData.kitchenStatus = kitchenStatus;
-      documentData.kitchenTimeline = {};
-    }
     if (isOut) {
       documentData.orderStatus = ORDER_STATUS.PENDING;
       documentData.orderChannel = data.delivery ? 'delivery' : 'on_site';
-    }
-    if (typeof data.tableNumber === 'string' && data.tableNumber.trim()) {
-      documentData.tableNumber = data.tableNumber.trim().slice(0, 20);
     }
     // Toda venta requiere confirmación explícita del cobro; las compras no
     // representan dinero recibido por caja.

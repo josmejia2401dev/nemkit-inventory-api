@@ -1,10 +1,9 @@
 'use strict';
 
-const { created, success, HttpError } = require('nemkit');
+const { created, success } = require('nemkit');
 const { InventoryDocumentController } = require('../documents/document.controller');
+const { saleSchema, cancelSchema } = require('./sales.validator');
 const { salesService } = require('./sales.service');
-const { kitchenService } = require('../kitchen/kitchen.service');
-const { saleSchema, cancelSchema, orderStatusSchema } = require('./sales.validator');
 
 class SalesController extends InventoryDocumentController {
   async create(req, res, next) {
@@ -14,16 +13,8 @@ class SalesController extends InventoryDocumentController {
       if (sanitized.employeeId == null && req.user.employeeId != null) {
         sanitized.employeeId = req.user.employeeId;
       }
-      // Bloque opcional de entrega a domicilio (objeto anidado; el validador
-      // schema-based no lo cubre, se pasa desde el body crudo).
       if (req.body?.delivery && typeof req.body.delivery === 'object') {
         sanitized.delivery = req.body.delivery;
-      }
-      // Restaurante: la venta entra a cocina como comanda.
-      const hasRestaurantTable = typeof sanitized.tableNumber === 'string'
-        && sanitized.tableNumber.trim().length > 0;
-      if (req.user.businessType === 'restaurant' || hasRestaurantTable) {
-        sanitized.kitchenStatus = 'pending';
       }
       return created(res, await this.service.create(sanitized, req.user.id));
     } catch (error) {
@@ -40,32 +31,11 @@ class SalesController extends InventoryDocumentController {
     }
   }
 
-  async changeStatus(req, res, next) {
-    try {
-      const { errorResponse, sanitized } = orderStatusSchema.check(req.body ?? {}, req);
-      if (errorResponse) return res.status(400).json(errorResponse);
-      const roles = req.user?.roles ?? [];
-      if (!roles.includes('ADMIN') && !roles.includes('SELLER')) {
-        throw HttpError.forbidden('Only the administrator or seller can update store order status');
-      }
-      return success(res, await kitchenService.advanceOrder(
-        req.params.id,
-        req.user.id,
-        sanitized.orderStatus,
-        req.user.businessType,
-        roles,
-      ));
-    } catch (error) {
-      next(error);
-    }
-  }
-
   /** Cancela un pedido/venta con un motivo. Repone stock (vía voidSale). */
   async cancel(req, res, next) {
     try {
       const { errorResponse, sanitized } = cancelSchema.check(req.body ?? {}, req);
       if (errorResponse) return res.status(400).json(errorResponse);
-      // 'other' requiere una nota que explique el motivo.
       if (sanitized.reason === 'other' && !(sanitized.note && sanitized.note.trim())) {
         return res.status(400).json({
           success: false,

@@ -1,81 +1,59 @@
 'use strict';
 
 /**
- * Matriz central de autorización por rol para el dominio de inventario.
+ * Matriz central de autorización por rol para Nemkit Inventory (retail).
  *
- * Fuente única de verdad: el frontend oculta rutas por UX, pero AQUÍ se decide
- * el acceso real. Cada entrada define qué roles (de usuario, en MAYÚSCULAS como
- * en el JWT) pueden acceder a un grupo de rutas y, cuando aplica, se separa
- * lectura (GET) de escritura (POST/PUT/DELETE).
- *
- * ADMIN tiene acceso total a los datos operativos de su empresa. SUPERADMIN
- * administra la plataforma mediante /platform, con un alcance global distinto.
+ * ADMIN tiene acceso total a los datos operativos de su empresa. Los roles
+ * operativos son CASHIER, SELLER y COURIER. La gestión de catálogo, compras,
+ * reportes y caja queda en ADMIN.
  */
 
-const ALL = 'ALL'; // marcador: todos los roles autenticados del empresa
+const ALL = 'ALL';
 
-/**
- * Para cada recurso montado en el router:
- * - read:  roles que pueden GET
- * - write: roles que pueden POST/PUT/DELETE/PATCH
- * Si un método no aplica a un recurso (p. ej. sólo lectura), write queda vacío.
- */
 const PERMISSIONS = Object.freeze({
   products: {
-    read: ['WAREHOUSE', 'CASHIER', 'SELLER', 'WAITER'],
-    write: ['WAREHOUSE'],
+    read: ['CASHIER', 'SELLER'],
+    write: [],
   },
   categories: {
-    read: ['WAREHOUSE', 'CASHIER', 'SELLER', 'WAITER'],
-    write: ['WAREHOUSE'],
+    read: ['CASHIER', 'SELLER'],
+    write: [],
   },
   movements: {
-    read: ['WAREHOUSE'],
-    write: ['WAREHOUSE'],
+    read: [],
+    write: [],
   },
   purchases: {
-    read: ['WAREHOUSE'],
-    write: ['WAREHOUSE'],
+    read: [],
+    write: [],
   },
   suppliers: {
-    read: ['WAREHOUSE'],
-    write: ['WAREHOUSE'],
+    read: [],
+    write: [],
   },
   sales: {
-    read: ['CASHIER', 'SELLER', 'WAITER'],
-    write: ['CASHIER', 'SELLER', 'WAITER'],
+    read: ['CASHIER', 'SELLER'],
+    write: ['CASHIER', 'SELLER'],
   },
-  // Plan separe: caja/ventas lo operan; bodega solo consulta.
   layaways: {
-    read: ['CASHIER', 'SELLER', 'WAREHOUSE'],
+    read: ['CASHIER', 'SELLER'],
     write: ['CASHIER', 'SELLER'],
   },
   customers: {
-    read: ['CASHIER', 'SELLER', 'WAITER', 'COURIER'],
-    write: ['CASHIER', 'SELLER', 'WAITER'],
+    read: ['CASHIER', 'SELLER', 'COURIER'],
+    write: ['CASHIER', 'SELLER'],
   },
   deliveries: {
-    read: ['CASHIER', 'SELLER', 'WAITER', 'COURIER'],
-    write: ['CASHIER', 'SELLER', 'WAITER', 'COURIER'],
+    read: ['CASHIER', 'SELLER', 'COURIER'],
+    write: ['CASHIER', 'SELLER', 'COURIER'],
   },
   employees: {
     read: [],
     write: [],
   },
-  // Consulta ligera de empleados para selectores de venta/entrega (no es gestión).
   'employee-options': {
-    read: ['CASHIER', 'SELLER', 'WAITER'],
+    read: ['CASHIER', 'SELLER'],
     write: [],
-  },
-  // Cola de cocina (restaurante): la ve/gestiona cocina, meseros y caja.
-  kitchen: {
-    read: ['COOK', 'WAITER', 'CASHIER', 'SELLER'],
-    write: ['COOK', 'WAITER', 'CASHIER', 'SELLER'],
-  },
-  // Mesas (restaurante): leen meseros/caja (elegir mesa, ver ocupación); gestiona admin.
-  tables: {
-    read: ['WAITER', 'CASHIER', 'SELLER', 'COOK'],
-    write: [], // crear/editar/borrar queda a ADMIN vía requireRole en las rutas
   },
   reports: {
     read: [],
@@ -85,13 +63,12 @@ const PERMISSIONS = Object.freeze({
     read: [],
     write: [],
   },
-  // Retiros de caja: solo ADMIN (se refuerza con requireRole en las rutas).
   'cash-withdrawals': {
     read: [],
     write: [],
   },
   dashboard: {
-    read: ALL, // cualquier usuario autenticado ve su dashboard (el contenido ya está acotado por rol/empresa)
+    read: ALL,
     write: [],
   },
 });
@@ -99,12 +76,6 @@ const PERMISSIONS = Object.freeze({
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const PRIVILEGED_ROLES = ['ADMIN'];
 
-/**
- * Crea un middleware de autorización para un recurso, respetando lectura vs escritura.
- * ADMIN siempre pasa. SUPERADMIN solo entra a endpoints de plataforma explícitos.
- *
- * @param {string} resource - clave en PERMISSIONS
- */
 function authorizeResource(resource) {
   const rule = PERMISSIONS[resource];
   if (!rule) throw new Error(`permissions: unknown resource '${resource}'`);

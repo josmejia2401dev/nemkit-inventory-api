@@ -1,11 +1,11 @@
 'use strict';
 
 const { createValidator } = require('nemkit');
-const { PRODUCT_STATUSES, PRODUCT_TYPES } = require('../inventory.constants');
+const { PRODUCT_STATUSES, PRODUCT_TYPE } = require('../inventory.constants');
 
 const fields = {
   categoryId: { type: 'number', min: 1 },
-  type: { type: 'string', enum: PRODUCT_TYPES },
+  type: { type: 'string', enum: [PRODUCT_TYPE.SIMPLE] },
   sku: { type: 'string', trim: true, minLength: 1, maxLength: 64 },
   barcode: { type: 'string', trim: true, maxLength: 64 },
   name: { type: 'string', trim: true, minLength: 1, maxLength: 100 },

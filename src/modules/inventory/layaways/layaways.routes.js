@@ -1,7 +1,8 @@
 'use strict';
 
 const { express } = require('nemkit');
-const { requireRole } = require('../../../middlewares/authorize.middleware');
+const { foundation } = require('../../../config/foundation');
+const { requireRole } = foundation.middlewares;
 const { layawaysController: c } = require('./layaways.controller');
 
 const router = express.Router();
@@ -9,7 +10,6 @@ const router = express.Router();
 // Rutas fijas antes de /:id para evitar colisiones.
 router.get('/settings', c.getSettings.bind(c));
 router.put('/settings', requireRole('ADMIN'), c.updateSettings.bind(c));
-router.post('/authorizations', c.authorize.bind(c));
 
 router.get('/', c.list.bind(c));
 router.post('/', c.create.bind(c));

@@ -15,7 +15,7 @@ class LoyaltyRepository {
       withTimeout(Customer.findOne({ _id: customerId, userId, recordStatus: RECORD_STATUS.ACTIVE }).lean()),
       Promise.all([
         withTimeout(Sale.find({ userId, customerId, recordStatus: RECORD_STATUS.ACTIVE })
-          .select('_id date total items employeeSnapshot paymentStatus orderStatus kitchenStatus tableNumber status voidReason voidNote voidedAt')
+          .select('_id date total items employeeSnapshot paymentStatus orderStatus status voidReason voidNote voidedAt')
           .sort({ date: -1, _id: -1 })
           .skip((page - 1) * limit)
           .limit(limit)

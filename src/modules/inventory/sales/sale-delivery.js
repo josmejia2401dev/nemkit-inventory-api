@@ -1,7 +1,7 @@
 'use strict';
 
 const { HttpError, UniqueNumberUtil } = require('nemkit');
-const { employeesService } = require('../../foundation/employees/employees.service');
+const { employeesService } = require('../../../config/foundation-services');
 const { deliveriesService } = require('../deliveries/deliveries.service');
 const { positiveInteger } = require('../validation');
 const { DELIVERY_STATUS } = require('../inventory.constants');
@@ -11,7 +11,7 @@ const { DELIVERY_STATUS } = require('../inventory.constants');
  * `delivery`, se crea dentro de la misma transacción; la venta ya descontó el
  * stock y el domicilio es solo logística de entrega.
  */
-async function createDeliveryForSale({ document, delivery, contact, items, fromKitchen, userId, session }) {
+async function createDeliveryForSale({ document, delivery, contact, items, userId, session }) {
   if (!delivery) return null;
 
   const address = typeof delivery.address === 'string' ? delivery.address.trim() : '';
@@ -21,17 +21,16 @@ async function createDeliveryForSale({ document, delivery, contact, items, fromK
 
   const location = validateDeliveryLocation(delivery.location);
   const courier = await resolveCourier(userId, delivery.courierId, session);
+  const snapshot = document.customerSnapshot ?? {};
 
   return deliveriesService.createFromSale({
     _id: UniqueNumberUtil.generateRaw(),
     userId,
     saleId: document._id,
-    // Restaurante: la venta nace con kitchenStatus → el pedido pasa por cocina.
-    fromKitchen,
-    customerId: document.customerId,
+    customerId: document.customerId ?? null,
     customerSnapshot: {
-      name: contact.name,
-      phone: contact.phone || '',
+      name: contact?.name || snapshot.name || 'Cliente',
+      phone: contact?.phone || snapshot.phone || '',
     },
     address,
     location,

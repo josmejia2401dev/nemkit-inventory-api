@@ -69,12 +69,6 @@ class DeliveriesController {
     try {
       const { errorResponse, sanitized } = statusSchema.check(req.body, req);
       if (errorResponse) return res.status(400).json(errorResponse);
-      if ([DELIVERY_STATUS.PREPARING, DELIVERY_STATUS.READY].includes(sanitized.status)) {
-        const roles = req.user?.roles ?? [];
-        if (!roles.includes('ADMIN') && !roles.includes('SELLER')) {
-          throw HttpError.forbidden('Only the store administrator or seller can update preparation status');
-        }
-      }
       const context = courierContext(req);
       if (sanitized.status === DELIVERY_STATUS.CANCELLED && context.restrictToCourierId != null) {
         throw HttpError.forbidden('Only management can cancel an order');

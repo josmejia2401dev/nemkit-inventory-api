@@ -2,7 +2,7 @@
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
 const { DeliveriesRepository } = require('./deliveries.repository');
-const { employeesService } = require('../../foundation/employees/employees.service');
+const { employeesService } = require('../../../config/foundation-services.js');
 const { pagination, positiveInteger } = require('../validation');
 const {
   DELIVERY_STATUS,
@@ -142,10 +142,6 @@ class DeliveriesService extends BaseService {
       }
       return updatedDelivery;
     });
-  }
-
-  syncFromKitchen(saleId, userId, kitchenStatus, session) {
-    return this.repository.syncFromKitchen(saleId, userId, kitchenStatus, session);
   }
 
   cancelBySale(saleId, userId, session) {

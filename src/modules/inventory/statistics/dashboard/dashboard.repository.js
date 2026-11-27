@@ -143,7 +143,6 @@ class DashboardRepository {
     const counts = Object.fromEntries(byStatus.map((row) => [row._id, row.count]));
     return {
       pending: counts[DELIVERY_STATUS.PENDING] || 0,
-      preparing: counts[DELIVERY_STATUS.PREPARING] || 0,
       onRoute: counts[DELIVERY_STATUS.ON_ROUTE] || 0,
       delivered: counts[DELIVERY_STATUS.DELIVERED] || 0,
       cancelled: counts[DELIVERY_STATUS.CANCELLED] || 0,

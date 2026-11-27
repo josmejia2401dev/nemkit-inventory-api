@@ -15,26 +15,17 @@ const SaleItemSchema = new mongoose.Schema({
 
 const SaleSchema = applyPlatformSchema({
   userId: { type: Number, required: true, index: true },
-  customerId: { type: Number, required: true, min: 1, index: true },
+  customerId: { type: Number, default: null, index: true },
   customerSnapshot: {
-    name: { type: String, required: true },
+    name: { type: String, default: '' },
     document: { type: String, default: '' },
     phone: { type: String, default: '' },
     email: { type: String, default: '' },
   },
   employeeId: { type: Number, default: null, index: true },
   employeeSnapshot: { name: { type: String, default: '' } },
-  // Compatibilidad de lectura para pedidos antiguos; el estado canónico es orderStatus.
-  kitchenStatus: { type: String, enum: ['pending', 'preparing', 'ready', 'served'], default: null, index: true },
   orderStatus: { type: String, enum: ORDER_STATUSES, default: null, index: true },
   orderChannel: { type: String, enum: ['delivery', 'on_site'], default: 'on_site', index: true },
-  tableNumber: { type: String, trim: true, default: '', maxlength: 20 },
-  kitchenTimeline: {
-    startedAt: { type: Date, default: null },
-    readyAt: { type: Date, default: null },
-    servedAt: { type: Date, default: null }, // legado
-    deliveredAt: { type: Date, default: null },
-  },
   date: { type: Date, required: true, index: true },
   status: { type: String, enum: Object.values(DOCUMENT_STATUS), default: DOCUMENT_STATUS.COMPLETED },
   // Cancelación del pedido/venta: motivo predefinido y nota opcional del mesero.
@@ -61,8 +52,6 @@ SaleSchema.index({ userId: 1, customerId: 1, date: -1 });
 SaleSchema.index({ userId: 1, employeeId: 1, date: -1 });
 SaleSchema.index({ userId: 1, paymentStatus: 1, paidAt: -1 });
 SaleSchema.index({ userId: 1, status: 1, voidedAt: -1 });
-// Cola de cocina: comandas activas ordenadas por fecha.
-SaleSchema.index({ userId: 1, kitchenStatus: 1, date: 1 });
 SaleSchema.index({ userId: 1, orderStatus: 1, date: 1 });
 
 module.exports = mongoose.model('inventory_sales', SaleSchema);

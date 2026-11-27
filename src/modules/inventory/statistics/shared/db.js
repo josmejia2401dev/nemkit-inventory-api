@@ -1,6 +1,6 @@
 'use strict';
 
-const { applyMongoTimeout } = require('../../../../config/mongo-query');
+const { applyMongoTimeout } = require('nemkit');
 
 const QUERY_TIMEOUT_MS = 30000;
 

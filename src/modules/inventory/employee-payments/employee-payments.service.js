@@ -2,7 +2,7 @@
 
 const { BaseService, HttpError, UniqueNumberUtil } = require('nemkit');
 const { EmployeePaymentsRepository } = require('./employee-payments.repository');
-const { employeesService } = require('../../foundation/employees/employees.service');
+const { employeesService } = require('../../../config/foundation-services.js');
 const { EMPLOYEE_PAYMENT_TYPES, EMPLOYEE_PAYMENT_METHODS } = require('./employee-payments.constants');
 const { positiveInteger, businessDate, businessRange } = require('../validation');
 

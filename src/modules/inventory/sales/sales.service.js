@@ -29,7 +29,7 @@ class SalesService extends InventoryDocumentService {
       direction: MOVEMENT_DIRECTION.OUT,
       amountField: 'unitPrice',
       label: 'Sale',
-      requiredContact: true,
+      requiredContact: false,
     });
     this.statisticsOperations = null;
   }
@@ -95,7 +95,6 @@ class SalesService extends InventoryDocumentService {
       delivery: data.delivery,
       contact,
       items,
-      fromKitchen: data.kitchenStatus != null,
       userId,
       session,
     });
@@ -145,7 +144,6 @@ class SalesService extends InventoryDocumentService {
         delivery,
         contact: customer,
         items: sale.items,
-        fromKitchen: false,
         userId,
         session,
       });
@@ -285,6 +283,16 @@ class SalesService extends InventoryDocumentService {
     return this.repository.hasCustomerSales(userId, customerId);
   }
 
+  /** Refleja en la venta el estado que reporta el módulo de domicilios. */
+  setOrderStatusFromDelivery(saleId, userId, status, session) {
+    return this.repository.setOrderStatusInSession(
+      positiveInteger(saleId, 'saleId'),
+      userId,
+      status,
+      session,
+    );
+  }
+
   /**
    * Registra el cobro de una venta "por cobrar": la marca como pagada, sella la
    * fecha y, al concretarse, suma las métricas de fidelización del cliente.
@@ -301,21 +309,26 @@ class SalesService extends InventoryDocumentService {
         throw HttpError.conflict('Sale is already paid');
       }
       const now = new Date();
+      const update = { paymentStatus: PAYMENT_STATUS.PAID, paidAt: now, updatedBy: userId };
+      // En mostrador el cobro cierra la entrega en el mismo acto.
+      if (sale.orderChannel === 'on_site') update.orderStatus = 'delivered';
       await this.repository.updateOwnedInSession(
         id,
         userId,
-        { $set: { paymentStatus: PAYMENT_STATUS.PAID, paidAt: now, updatedBy: userId } },
+        { $set: update },
         session,
       );
 
       // Al concretar el cobro, sumar las métricas de fidelización del cliente.
-      const customer = await customersService.getActiveForDocument(sale.customerId, userId, session);
+      const customer = sale.customerId != null
+        ? await customersService.getActiveForDocument(sale.customerId, userId, session)
+        : null;
       if (customer) {
         const { recordCustomerPurchase } = this.#getStatisticsOperations();
         await recordCustomerPurchase(customer, sale.total, now, userId, session);
       }
 
-      return { id, paymentStatus: PAYMENT_STATUS.PAID, paidAt: now };
+      return { id, paymentStatus: PAYMENT_STATUS.PAID, paidAt: now, orderStatus: update.orderStatus ?? sale.orderStatus };
     });
   }
 }

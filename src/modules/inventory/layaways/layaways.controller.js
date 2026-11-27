@@ -8,7 +8,6 @@ const {
   paymentSchema,
   deliverSchema,
   cancelSchema,
-  authorizationSchema,
   settingsSchema,
 } = require('./layaways.validator');
 
@@ -105,20 +104,6 @@ class LayawaysController {
         res,
         await layawaysService.cancel(req.params.id, sanitized, req.user.id, actorOf(req)),
         'Plan separe cancelado',
-      );
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async authorize(req, res, next) {
-    try {
-      const { errorResponse, sanitized } = authorizationSchema.check(req.body ?? {}, req);
-      if (errorResponse) return res.status(400).json(errorResponse);
-      return created(
-        res,
-        await layawaysService.authorize(req.user.id, req.user.actorId ?? req.user.id, sanitized),
-        'Autorización emitida',
       );
     } catch (error) {
       next(error);

@@ -1,7 +1,7 @@
 'use strict';
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
-const { limitsService } = require('../../foundation/limits/limits.service');
+const { limitsService } = require('../../../config/foundation-services.js');
 const { pagination, positiveInteger, escapeRegex, assertNoEmptyUpdate } = require('../validation');
 
 class ContactService extends BaseService {
