@@ -4,6 +4,7 @@ const { createApp, requestIdMiddleware, createErrorMiddleware, createCorsMiddlew
 const { env } = require('./config/env');
 const logger = require('./config/logger');
 const { mongoClient } = require('./config/db');
+const { cache } = require('./config/cache');
 const router = require('./routes/index');
 const pkg = require('../package.json');
 
@@ -37,7 +38,10 @@ const readyHandler = async (_req, res) => {
   res.status(mongoOk ? 200 : 503).json({
     status: mongoOk ? 'ready' : 'not ready',
     node: env.APP_NODE_NAME || null,
-    probes: { mongo: { ok: mongoOk, ...mongoClient.getStats() } },
+    probes: {
+      mongo: { ok: mongoOk, ...mongoClient.getStats() },
+      cache: { status: cache.status(), ...cache.stats() },
+    },
   });
 };
 

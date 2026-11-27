@@ -8,6 +8,7 @@ const logger = require('./config/logger');
 const { mongoClient } = require('./config/db');
 const { foundation } = require('./config/foundation');
 const { syncIndexes } = require('./config/sync-indexes');
+const { cache } = require('./config/cache');
 const app = require('./app');
 
 createServer({
@@ -19,6 +20,8 @@ createServer({
 }).then(async () => {
   await syncIndexes();
   await foundation.seedAdmin();
+  // No bloquea el arranque: si Redis duerme, la API opera contra Mongo.
+  cache.connect().catch(() => undefined);
 }).catch((err) => {
   logger.error('Fatal error starting server', { error: err.message });
   process.exit(1);

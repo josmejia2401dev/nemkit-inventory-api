@@ -16,7 +16,7 @@ class ProductsController {
 
   async get(req, res, next) {
     try {
-      const product = await service.getOwned(+req.params.id, req.user.id);
+      const product = await service.getCached(+req.params.id, req.user.id);
       return success(res, product);
     } catch (error) {
       next(error);
@@ -25,7 +25,7 @@ class ProductsController {
 
   async getByBarcode(req, res, next) {
     try {
-      const product = await service.getByBarcode(req.params.barcode, req.user.id);
+      const product = await service.getByBarcodeCached(req.params.barcode, req.user.id);
       return success(res, product);
     } catch (error) {
       next(error);

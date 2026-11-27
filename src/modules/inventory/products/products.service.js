@@ -2,6 +2,8 @@
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
 const { ProductsRepository } = require('./products.repository');
+const { cache, CACHE_TTL } = require('../../../config/cache');
+const { cacheKeys, invalidateProduct } = require('../cache/cache-keys');
 const { limitsService } = require('../../../config/foundation-services.js');
 const {
   pagination,
@@ -41,12 +43,16 @@ class ProductsService extends BaseService {
     return this.repository.findSaleReversalDetails(userId, productIds, session);
   }
 
-  changeStock(userId, productId, quantity, direction, session = null) {
-    return this.repository.changeStock(userId, productId, quantity, direction, session);
+  async changeStock(userId, productId, quantity, direction, session = null) {
+    const result = await this.repository.changeStock(userId, productId, quantity, direction, session);
+    await invalidateProduct(userId, productId);
+    return result;
   }
 
-  restoreStock(userId, productId, quantity, session = null) {
-    return this.repository.restoreStock(userId, productId, quantity, session);
+  async restoreStock(userId, productId, quantity, session = null) {
+    const result = await this.repository.restoreStock(userId, productId, quantity, session);
+    await invalidateProduct(userId, productId);
+    return result;
   }
 
   hasCategoryReferences(userId, categoryId) {
@@ -163,6 +169,33 @@ class ProductsService extends BaseService {
     return product;
   }
 
+  /** Lectura cache-first para GET /products/:id. Las mutaciones usan getOwned. */
+  getCached(id, userId) {
+    const productId = positiveInteger(id, 'productId');
+    return cache.readThrough({
+      key: cacheKeys.product(userId, productId),
+      ttlSeconds: CACHE_TTL.detail,
+      load: () => this.getOwned(productId, userId),
+    });
+  }
+
+  /**
+   * El cache de barcode guarda solo la referencia al producto. El detalle vive
+   * en la clave por ID, que se invalida cuando cambia el stock.
+   */
+  async getByBarcodeCached(barcode, userId) {
+    const value = String(barcode ?? '').trim();
+    const ref = await cache.readThrough({
+      key: cacheKeys.productBarcode(userId, value),
+      ttlSeconds: CACHE_TTL.detail,
+      load: async () => {
+        const product = await this.getByBarcode(value, userId);
+        return { id: product.id };
+      },
+    });
+    return this.getCached(ref.id, userId);
+  }
+
   async create(data, userId) {
     validateProductFields(data);
     const type = this.#validateType(data.type);
@@ -223,7 +256,9 @@ class ProductsService extends BaseService {
     const { userId: _userId, stock: _stock, ...safeData } = data;
 
     try {
-      return await this.updateById(productId, safeData, userId);
+      const updated = await this.updateById(productId, safeData, userId);
+      await invalidateProduct(userId, productId, [current.barcode, safeData.barcode]);
+      return updated;
     } catch (error) {
       return translateDuplicateKey(error);
     }
@@ -237,7 +272,9 @@ class ProductsService extends BaseService {
       throw HttpError.conflict('Record an outbound movement before deleting a product with stock');
     }
 
-    return this.softDelete(productId, userId);
+    const removed = await this.softDelete(productId, userId);
+    await invalidateProduct(userId, productId, [product.barcode]);
+    return removed;
   }
 
   #validateType(type) {

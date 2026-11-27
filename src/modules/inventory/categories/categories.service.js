@@ -2,6 +2,8 @@
 
 const { BaseService, HttpError, RECORD_STATUS } = require('nemkit');
 const { CategoriesRepository } = require('./categories.repository');
+const { cache, CACHE_TTL } = require('../../../config/cache');
+const { cacheKeys, invalidateCategories } = require('../cache/cache-keys');
 const {
   pagination,
   positiveInteger,
@@ -29,24 +31,41 @@ class CategoriesService extends BaseService {
 
   async list(userId, query = {}) {
     const { page, limit } = pagination(query);
-
-    return this.filterAndPaginate({
-      userId,
-      recordStatus: RECORD_STATUS.ACTIVE,
-    }, {
-      page,
-      limit,
-      sort: { name: 1 },
+    // El catálogo de categorías es pequeño y se usa en selectores: se cachea
+    // completo y se pagina en memoria para no crear una clave por filtro.
+    const all = await cache.readThrough({
+      key: cacheKeys.categoriesAll(userId),
+      ttlSeconds: CACHE_TTL.catalog,
+      load: () => this.repository.find(
+        { userId, recordStatus: RECORD_STATUS.ACTIVE },
+        { sort: { name: 1 } },
+      ),
     });
+    const total = all.length;
+    const totalPages = Math.ceil(total / limit);
+    const start = (page - 1) * limit;
+    return {
+      data: all.slice(start, start + limit),
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    };
   }
 
   async create(data, userId) {
     try {
-      return await this.repository.create({
+      const created = await this.repository.create({
         ...data,
         nameKey: data.name.toLowerCase(),
         userId,
       }, userId);
+      await invalidateCategories(userId);
+      return created;
     } catch (error) {
       return translateDuplicateKey(error);
     }
@@ -61,7 +80,9 @@ class CategoriesService extends BaseService {
     if (update.name !== undefined) update.nameKey = update.name.toLowerCase();
 
     try {
-      return await this.updateById(categoryId, update, userId);
+      const updated = await this.updateById(categoryId, update, userId);
+      await invalidateCategories(userId);
+      return updated;
     } catch (error) {
       return translateDuplicateKey(error);
     }
@@ -90,7 +111,9 @@ class CategoriesService extends BaseService {
       throw HttpError.conflict('Category still has linked products; preserve the category for inventory history');
     }
 
-    return this.softDelete(categoryId, userId);
+    const removed = await this.softDelete(categoryId, userId);
+    await invalidateCategories(userId);
+    return removed;
   }
 }
 
