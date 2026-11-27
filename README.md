@@ -1,71 +1,74 @@
 # Nemkit Inventory API
 
-Backend MVP de inventario construido sobre los patrones del `nemkit-timetrack-api`.
+Backend de **retail simple** construido sobre `nemkit`.
 
-## Reutilización
+## Alcance
 
-`src/config`, `src/middlewares` y `src/modules/foundation` se mantienen del backend de TimeTrack para reutilizar autenticación, usuarios, tokens, conexión MongoDB, logger y configuración. El dominio nuevo vive bajo `src/modules/inventory`.
+- Ventas de mostrador y domicilios.
+- Productos simples con stock, compras, proveedores, movimientos y categorías.
+- Clientes opcionales en mostrador.
+- Caja, retiros y reportes.
+- Plan separe con abonos, entrega inmediata con 0 % y sin autorización de ADMIN.
+- Sin cocina, mesas, recetas, platos preparados ni preparación de pedidos.
 
-Todos los documentos usan `applyPlatformSchema` y `MongoRepository` de `nemkit`, que autogenera `_id` numérico. Las referencias `userId`, `categoryId` y `productId` también son numéricas.
+## Foundation
 
-`recordStatus` usa los estados de plataforma exportados como `RECORD_STATUS` por `nemkit`. Los estados de disponibilidad de producto, tipos de movimiento y direcciones de stock se definen en `src/modules/inventory/inventory.constants.js`; modelos, validadores y servicios consumen esa misma fuente. Las listas son constantes congeladas en código, no documentos de catálogo en MongoDB.
+La autenticación, usuarios, empleados, tokens, feedback, límites y panel `sys`
+viven en `nemkit` y se montan con `createFoundation`.
 
-El backend se organiza por micro módulos cohesivos. Cada módulo mantiene sus propias rutas, controlador, servicio, validador, modelo y repositorio cuando aplica. Los controladores solo adaptan HTTP; las dependencias entre módulos se realizan mediante servicios. Las operaciones MongoDB comunes se reutilizan desde `BaseService` y `MongoRepository` de `nemkit`; las consultas específicas permanecen en el repositorio del módulo dueño de los datos.
+```text
+/api/v1/inventory/foundation/auth/...
+/api/v1/inventory/foundation/users/...
+/api/v1/inventory/foundation/employees/...
+/api/v1/inventory/foundation/limits
+/api/v1/inventory/foundation/feedback
+/api/v1/inventory/foundation/sys/...
+```
 
-### Módulos
+## Roles
 
-- **Foundation reutilizado:** autenticación, usuarios, tokens y feedback. Sus extensiones de este producto son perfil, configuración del negocio, anuncios, notificaciones y plataforma (`overview`, `users`, `companies`, `operations`).
-- **Inventario con datos propios:** `categories`, `products`, `customers`, `suppliers`, `employees`, `movements`, `purchases`, `sales`, `deliveries` y `tables`. Cada uno posee su modelo y repositorio; ningún otro módulo consulta esos modelos o repositorios directamente.
-- **Casos de uso de lectura:** `dashboard` y `reports` coordinan consultas a través de servicios propietarios y no tienen modelo propio.
-- **Soporte compartido:** `documents` conserva las operaciones transaccionales comunes a compras y ventas mediante `InventoryDocumentRepository`; `contacts` centraliza CRUD común de clientes y proveedores. No son recursos HTTP independientes.
-- **Flujo de cocina:** `kitchen` mantiene su propio controller, service, validator y router, y delega transiciones al módulo `sales`.
-- **Asociaciones de plataforma:** `inventory/platform-members` expone al superadministrador la asociación, desasociación e historial de empleados. `foundation/platform` no importa servicios de `inventory`; ambos routers se componen en `src/routes/index.js`.
+- `ADMIN`: catálogo, compras, caja, reportes, empleados, plan separe.
+- `CASHIER`: ventas, cobros, plan separe, domicilios, clientes, catálogo.
+- `SELLER`: ventas, plan separe, domicilios, clientes, catálogo.
+- `COURIER`: solo sus domicilios asignados.
 
-Las operaciones transaccionales reciben y propagan la misma sesión MongoDB entre repositorios. Cada servicio conserva reglas de negocio; los repositorios encapsulan las consultas específicas de su modelo. Los controladores validan y adaptan HTTP, mientras que los servicios vuelven a validar invariantes necesarias para llamadas internas. `src/modules/inventory/inventory.module.js` enlaza las operaciones de ventas requeridas por domicilios, manteniendo la dependencia en una sola dirección y sin imports circulares.
+## Flujo de pedido
 
-## Política de eliminación
+```text
+Mostrador: pending -> pago/entrega -> delivered
+Domicilio: pending -> on_route -> delivered
+Cancelación: -> cancelled
+```
 
-Los endpoints `DELETE` de productos y categorías hacen borrado lógico (`recordStatus: "deleted"`). El ciclo de vida de plataforma también contempla `active`, `inactive` y `archived`; esos valores no son borrado físico. Los movimientos son registros históricos inmutables y no tienen endpoint de eliminación.
+No existen `preparing` ni `ready`.
 
-No se ofrece borrado físico individual en este MVP. Una categoría o producto puede estar referenciado por productos o movimientos históricos. La purga física en cascada aplica a la eliminación completa de una cuenta o negocio y debe borrar sus movimientos, productos, categorías y tokens asociados en una operación administrativa. Esa operación se implementará cuando exista el flujo de baja de cuenta; no debe exponerse como variante del `DELETE` normal.
+## Endpoints principales
 
-La eliminación lógica de una categoría se bloquea si conserva productos vinculados. SKU, códigos de barras y nombres de categorías pueden reutilizarse después del borrado lógico; las restricciones únicas solo aplican a documentos activos.
+```text
+GET/POST /api/v1/inventory/products
+GET/POST /api/v1/inventory/categories
+GET/POST /api/v1/inventory/purchases
+GET/POST /api/v1/inventory/suppliers
+GET/POST /api/v1/inventory/customers
+GET/POST /api/v1/inventory/sales
+PUT      /api/v1/inventory/sales/:id/pay
+PUT      /api/v1/inventory/sales/:id/cancel
+GET/POST /api/v1/inventory/layaways
+POST     /api/v1/inventory/layaways/:id/payments
+POST     /api/v1/inventory/layaways/:id/deliver
+POST     /api/v1/inventory/layaways/:id/cancel
+GET/PUT  /api/v1/inventory/layaways/settings
+GET/POST /api/v1/inventory/deliveries
+PUT      /api/v1/inventory/deliveries/:id/status
+GET      /api/v1/inventory/reports/...
+GET      /api/v1/inventory/dashboard/...
+GET/POST /api/v1/inventory/cash-withdrawals
+```
 
-Un producto con stock no se puede eliminar lógicamente hasta registrar una salida que lo deje en cero. Así el dashboard y la valoración no pierden existencias sin un movimiento que las explique.
+## Ejecución local
 
-## Rutas protegidas
-
-- `GET/POST /api/v1/inventory/products`, `GET/PUT/DELETE /api/v1/inventory/products/:id`
-- `GET/POST /api/v1/inventory/categories`, `PUT/DELETE /api/v1/inventory/categories/:id`
-- `GET/POST /api/v1/inventory/movements`, `GET /api/v1/inventory/movements/:id`
-- `GET/POST /api/v1/inventory/suppliers`, `GET/PUT/DELETE /api/v1/inventory/suppliers/:id`
-- `GET/POST /api/v1/inventory/customers`, `GET/PUT/DELETE /api/v1/inventory/customers/:id`
-- `GET/POST /api/v1/inventory/purchases`, `GET /api/v1/inventory/purchases/:id`
-- `GET/POST /api/v1/inventory/sales`, `GET /api/v1/inventory/sales/:id`
-- `GET /api/v1/inventory/dashboard/summary`
-- `/api/v1/inventory/auth`, `/api/v1/inventory/profile` y `/api/v1/inventory/settings/business` del foundation
-- `/api/v1/inventory/notifications`, `/api/v1/inventory/notifications/unread-count`, `/api/v1/inventory/notifications/:id` y `/api/v1/inventory/notifications/read-all`
-- `/api/v1/inventory/platform/announcements` para crear, publicar y archivar avisos (solo `SUPERADMIN`)
-- `/api/v1/inventory/platform/companies/:companyId/members` para asociar/desasociar empleados y `/api/v1/inventory/platform/users/:userId/employment-history` para ver su historial (solo `SUPERADMIN`)
-
-El prefijo efectivo depende de `API_PREFIX` en la configuración de entorno.
-
-## Movimientos y stock
-
-Las compras y ventas comerciales se registran como documentos inmutables. Cada documento conserva una copia de los datos del contacto y de los productos para mantener el historial aunque después se editen o desactiven. La compra requiere proveedor y la venta requiere cliente; si aún no existe, se puede crear desde el flujo de venta.
-
-Al confirmar una compra o venta, el documento, el cambio de stock y el movimiento asociado se confirman o revierten juntos mediante una transacción MongoDB. Las salidas se condicionan al stock disponible. Daños, pérdidas, consumo interno y ajustes manuales continúan registrándose desde movimientos.
-
-El endpoint manual `POST /movements` rechaza los tipos `purchase` y `sale`; esos movimientos solo se crean junto con una compra o venta para conservar proveedor/cliente, comprobante y trazabilidad.
-
-Los comprobantes de venta se presentan en el frontend en formato imprimible; el navegador permite imprimir en térmica o guardar en PDF. Son comprobantes simples, no facturas electrónicas fiscales.
-
-El backend requiere MongoDB configurado como replica set (MongoDB Atlas cumple este requisito) para habilitar transacciones.
-
-Los reportes agrupados por día, semana y mes usan `$dateTrunc` y requieren MongoDB 5.0 o posterior.
-
-Los avisos publicados generan una entrega persistente en la bandeja de cada usuario activo, excepto `SUPERADMIN`. La bandeja es el canal inicial y fuente de historial; Web Push del navegador queda para una etapa posterior. Los índices de anuncios y entregas se sincronizan al iniciar la API.
-
-## Desarrollo
-
-Instalar dependencias y usar `npm run dev` o `npm start`. Requiere Node.js 20.19 o superior y las variables de entorno de `.env.example`.
+```bash
+cp .env.example .env
+npm install
+npm run dev
+```
