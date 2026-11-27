@@ -59,10 +59,6 @@ const PERMISSIONS = Object.freeze({
     read: [],
     write: [],
   },
-  'employee-payments': {
-    read: [],
-    write: [],
-  },
   'cash-withdrawals': {
     read: [],
     write: [],

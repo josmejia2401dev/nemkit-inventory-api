@@ -11,7 +11,6 @@ module.exports = {
   Layaway: require('../layaways/layaways.model'),
   LayawayPayment: require('../layaways/layaway-payments.model'),
   Delivery: require('../deliveries/deliveries.model'),
-  EmployeePayment: require('../employee-payments/employee-payments.model'),
   Purchase: require('../purchases/purchases.model'),
   CashWithdrawal: require('../cash-withdrawals/cash-withdrawals.model'),
 };

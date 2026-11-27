@@ -31,10 +31,6 @@ const env = loadEnv({
   LOGS_LOCAL_PATH:      { default: './logs' },
   REQUEST_LOG_ENABLED:  { type: 'boolean', default: true },
 
-  STORAGE_TMP_PATH:        { default: './tmp/storage' },
-  STORAGE_MEMORY_LIMIT_MB: { type: 'number', default: 5 },   // < 5MB → staging en RAM
-  STORAGE_MAX_FILE_MB:     { type: 'number', default: 15 },  // límite hard (BSON < 16MB)
-  STORAGE_STAGING_TTL_MS:  { type: 'number', default: 1800000 },
 
   // Correo transaccional (OTP) vía Notify interno.
   NOTIFY_API_URL: { default: '' },

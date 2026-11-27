@@ -10,8 +10,7 @@ const {
 
 /**
  * Flujo de caja del periodo: lo que entra por ventas cobradas y abonos de
- * Plan separe, y lo que sale por compras, pagos a empleados, retiros y
- * devoluciones de planes separe.
+ * Plan separe, y lo que sale por compras, retiros y devoluciones de planes separe.
  *
  * Las ventas de un Plan separe se registran con `settledByLayaway = true` y se
  * excluyen de los ingresos porque el dinero ya entró por cada abono.
@@ -20,7 +19,6 @@ function cashFlow(models, userId, from, toExclusive) {
   const {
     Sale,
     Purchase,
-    EmployeePayment,
     CashWithdrawal,
     LayawayPayment,
     Layaway,
@@ -38,11 +36,6 @@ function cashFlow(models, userId, from, toExclusive) {
     recordStatus: RECORD_STATUS.ACTIVE,
     status: DOCUMENT_STATUS.COMPLETED,
     date: { $gte: from, $lt: toExclusive },
-  };
-  const paymentsMatch = {
-    userId,
-    recordStatus: RECORD_STATUS.ACTIVE,
-    paymentDate: { $gte: from, $lt: toExclusive },
   };
   const withdrawalsMatch = {
     userId,
@@ -71,11 +64,6 @@ function cashFlow(models, userId, from, toExclusive) {
     withTimeout(Purchase.aggregate([
       { $match: purchasesMatch },
       { $group: { _id: null, count: { $sum: 1 }, total: { $sum: '$total' } } },
-      { $project: { _id: 0, count: 1, total: 1 } },
-    ])),
-    withTimeout(EmployeePayment.aggregate([
-      { $match: paymentsMatch },
-      { $group: { _id: null, count: { $sum: 1 }, total: { $sum: '$amount' } } },
       { $project: { _id: 0, count: 1, total: 1 } },
     ])),
     withTimeout(CashWithdrawal.aggregate([

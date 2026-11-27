@@ -15,11 +15,6 @@ const paginationFields = {
 };
 
 module.exports = {
-  paymentSummaryQuerySchema: createValidator({
-    from: { type: 'string', pattern: DATE_PATTERN },
-    to: { type: 'string', pattern: DATE_PATTERN },
-    employeeId: { type: 'number', toNumber: true, min: 1, custom: integer },
-  }),
   movementsQuerySchema: createValidator({
     ...dateFields,
     ...paginationFields,

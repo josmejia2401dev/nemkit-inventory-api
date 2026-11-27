@@ -9,7 +9,7 @@ const { dateRange, pageOptions, roundMoney, sum } = require('../shared/aggregati
 const { inventoryReport: buildInventoryReport } = require('./inventory.report');
 const { movementsReport: buildMovementsReport } = require('./movements.report');
 const { salesReport: buildSalesReport } = require('./sales.report');
-const { salesByEmployee: buildSalesByEmployee, employeePaymentSummary: buildEmployeePaymentSummary } = require('./employees.report');
+const { salesByEmployee: buildSalesByEmployee } = require('./employees.report');
 const { cancelledSales: buildCancelledSales } = require('./cancellations.report');
 const { cashFlow: buildCashFlow } = require('./cash-flow.report');
 
@@ -60,7 +60,7 @@ class ReportsService {
 
   async salesByEmployee(userId, query = {}) {
     const range = dateRange(query);
-    const [salesRows = [], collectionRows = [], cancellationRows = [], paymentRows = []] = await buildSalesByEmployee(
+    const [salesRows = [], collectionRows = [], cancellationRows = []] = await buildSalesByEmployee(
       this.models,
       userId,
       range.from,
@@ -83,8 +83,6 @@ class ReportsService {
           cancellationCount: 0,
           cancelledValue: 0,
           grossProfit: 0,
-          paymentsMade: 0,
-          paymentCount: 0,
         });
       }
       return byEmployee.get(employeeId);
@@ -112,14 +110,7 @@ class ReportsService {
         cancelledValue: roundMoney(row.cancelledValue),
       });
     }
-    for (const row of paymentRows) {
-      Object.assign(employeeFor(row), {
-        paymentsMade: roundMoney(row.totalPaid),
-        paymentCount: row.paymentCount,
-      });
-    }
-
-    const employees = [...byEmployee.values()].sort((a, b) => (b.revenue - a.revenue) || (b.paymentsMade - a.paymentsMade));
+    const employees = [...byEmployee.values()].sort((a, b) => b.revenue - a.revenue);
     return {
       generatedAt: new Date(),
       totals: {
@@ -134,39 +125,8 @@ class ReportsService {
         cancellationCount: employees.reduce((total, row) => total + row.cancellationCount, 0),
         cancelledValue: sum(employees, 'cancelledValue'),
         grossProfit: sum(employees, 'grossProfit'),
-        paymentsMade: sum(employees, 'paymentsMade'),
-        paymentCount: employees.reduce((total, row) => total + row.paymentCount, 0),
       },
       employees,
-      payments: {
-        generatedAt: new Date(),
-        totals: {
-          employeeCount: paymentRows.length,
-          paymentCount: paymentRows.reduce((total, row) => total + row.paymentCount, 0),
-          totalPaid: roundMoney(paymentRows.reduce((total, row) => total + row.totalPaid, 0)),
-        },
-        employees: paymentRows.map((row) => ({ ...row, totalPaid: roundMoney(row.totalPaid) })),
-      },
-    };
-  }
-
-  async employeePaymentsSummary(userId, query = {}) {
-    const range = query.from || query.to
-      ? dateRange(query, { enforceMax: false })
-      : { from: null, toExclusive: null };
-    if ((query.from && !query.to) || (!query.from && query.to)) {
-      throw HttpError.badRequest('from and to must be provided together');
-    }
-    const employeeId = query.employeeId === undefined ? null : positiveInteger(query.employeeId, 'employeeId');
-    const employees = await buildEmployeePaymentSummary(this.models, userId, range.from, range.toExclusive, employeeId);
-    return {
-      generatedAt: new Date(),
-      totals: {
-        employeeCount: employees.length,
-        paymentCount: employees.reduce((total, row) => total + row.paymentCount, 0),
-        totalPaid: roundMoney(employees.reduce((total, row) => total + row.totalPaid, 0)),
-      },
-      employees: employees.map((row) => ({ ...row, totalPaid: roundMoney(row.totalPaid) })),
     };
   }
 
@@ -179,7 +139,6 @@ class ReportsService {
     const [
       sales = [],
       purchases = [],
-      payments = [],
       withdrawals = [],
       layawayPayments = [],
       layawayRefunds = [],
@@ -192,13 +151,12 @@ class ReportsService {
 
     const salesTotal = roundMoney(sales[0]?.total ?? 0);
     const purchasesTotal = roundMoney(purchases[0]?.total ?? 0);
-    const paymentsTotal = roundMoney(payments[0]?.total ?? 0);
     const withdrawalTotals = withdrawals[0]?.totals?.[0] ?? { count: 0, total: 0 };
     const withdrawalsTotal = roundMoney(withdrawalTotals.total);
     const layawayPaymentsTotal = roundMoney(layawayPayments[0]?.total ?? 0);
     const layawayRefundsTotal = roundMoney(layawayRefunds[0]?.total ?? 0);
     const outflowsTotal = roundMoney(
-      purchasesTotal + paymentsTotal + withdrawalsTotal + layawayRefundsTotal,
+      purchasesTotal + withdrawalsTotal + layawayRefundsTotal,
     );
     const inflowsTotal = roundMoney(salesTotal + layawayPaymentsTotal);
 
@@ -214,8 +172,6 @@ class ReportsService {
       outflows: {
         purchases: purchasesTotal,
         purchasesCount: purchases[0]?.count ?? 0,
-        employeePayments: paymentsTotal,
-        employeePaymentsCount: payments[0]?.count ?? 0,
         withdrawals: withdrawalsTotal,
         withdrawalsCount: withdrawalTotals.count,
         layawayRefunds: layawayRefundsTotal,

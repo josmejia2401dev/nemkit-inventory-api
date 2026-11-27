@@ -21,7 +21,6 @@ async function syncIndexes() {
     require('../modules/inventory/layaways/layaways.model'),
     require('../modules/inventory/layaways/layaway-payments.model'),
     require('../modules/inventory/layaways/layaway-settings.model'),
-    require('../modules/inventory/employee-payments/employee-payments.model'),
   ];
 
   for (const model of models) {

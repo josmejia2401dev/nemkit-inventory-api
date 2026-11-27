@@ -15,7 +15,6 @@ const purchasesRoutes = require('../modules/inventory/purchases/purchases.routes
 const salesRoutes = require('../modules/inventory/sales/sales.routes');
 const layawaysRoutes = require('../modules/inventory/layaways/layaways.routes');
 const reportsRoutes = require('../modules/inventory/reports/reports.routes');
-const employeePaymentsRoutes = require('../modules/inventory/employee-payments/employee-payments.routes');
 const deliveriesRoutes = require('../modules/inventory/deliveries/deliveries.routes');
 const { employeeOptionsController } = require('../modules/inventory/employee-options/employee-options.controller');
 
@@ -36,7 +35,6 @@ router.use('/purchases', authorizeResource('purchases'), purchasesRoutes);
 router.use('/sales', authorizeResource('sales'), salesRoutes);
 router.use('/layaways', authorizeResource('layaways'), layawaysRoutes);
 router.use('/reports', authorizeResource('reports'), reportsRoutes);
-router.use('/employee-payments', authorizeResource('employee-payments'), employeePaymentsRoutes);
 router.use('/cash-withdrawals', authorizeResource('cash-withdrawals'), cashWithdrawalsRoutes);
 router.get('/employee-options', authorizeResource('employee-options'), employeeOptionsController.options.bind(employeeOptionsController));
 router.use('/deliveries', authorizeResource('deliveries'), deliveriesRoutes);

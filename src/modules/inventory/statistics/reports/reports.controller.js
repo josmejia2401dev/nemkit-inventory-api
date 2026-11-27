@@ -3,7 +3,6 @@
 const { success, paginated } = require('nemkit');
 const { reportsService } = require('./reports.service');
 const {
-  paymentSummaryQuerySchema,
   movementsQuerySchema,
   salesQuerySchema,
   salesByEmployeeQuerySchema,
@@ -80,15 +79,6 @@ class ReportsController {
     }
   }
 
-  async employeePaymentSummary(req, res, next) {
-    try {
-      const query = check(paymentSummaryQuerySchema, req, res);
-      if (!query) return;
-      return success(res, await reportsService.employeePaymentsSummary(req.user.id, query));
-    } catch (error) {
-      next(error);
-    }
-  }
 }
 
 module.exports = { reportsController: new ReportsController() };

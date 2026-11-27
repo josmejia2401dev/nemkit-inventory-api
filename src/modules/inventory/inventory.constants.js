@@ -12,8 +12,6 @@ const PRODUCT_STATUS = Object.freeze({
  */
 const PRODUCT_TYPE = Object.freeze({
   SIMPLE: 'simple',
-  INGREDIENT: 'ingredient',
-  PREPARED: 'prepared',
 });
 
 /** Tipos de eventos que modifican existencias. */
@@ -197,8 +195,8 @@ const DELIVERY_STATUSES = Object.freeze(Object.values(DELIVERY_STATUS));
 const ORDER_STATUSES = Object.freeze(Object.values(ORDER_STATUS));
 const PRODUCT_STATUSES = Object.freeze(Object.values(PRODUCT_STATUS));
 const PRODUCT_TYPES = Object.freeze(Object.values(PRODUCT_TYPE));
-const PURCHASABLE_TYPES = Object.freeze([PRODUCT_TYPE.SIMPLE, PRODUCT_TYPE.INGREDIENT]);
-const SELLABLE_TYPES = Object.freeze([PRODUCT_TYPE.SIMPLE, PRODUCT_TYPE.PREPARED]);
+const PURCHASABLE_TYPES = Object.freeze([PRODUCT_TYPE.SIMPLE]);
+const SELLABLE_TYPES = Object.freeze([PRODUCT_TYPE.SIMPLE]);
 const STOCK_STATE = Object.freeze({
   OUT_OF_STOCK: 'out_of_stock',
   LOW_STOCK: 'low_stock',

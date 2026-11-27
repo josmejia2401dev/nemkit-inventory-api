@@ -79,12 +79,10 @@ class InventoryDocumentService extends BaseService {
         session,
       );
       const productById = await this.#loadProducts(userId, items, isOut, session);
-      const ingredientById = await this.#loadIngredients(userId, productById, isOut, session);
 
       const { documentItems, quantities, total } = buildDocumentItems({
         items,
         productById,
-        ingredientById,
         amountField: this.amountField,
         isOut,
       });
@@ -92,7 +90,6 @@ class InventoryDocumentService extends BaseService {
       await this.#applyStockConsumption({
         plan: stockPlan,
         productById,
-        ingredientById,
         userId,
         session,
         isOut,
@@ -120,14 +117,11 @@ class InventoryDocumentService extends BaseService {
       const movementItems = buildMovementItems({
         plan: stockPlan,
         productById,
-        ingredientById,
         items: documentItems,
         direction: this.direction,
         isOut,
       });
-      // Solo se registra un movimiento de inventario si hubo consumo real de
-      // stock. Una venta compuesta únicamente por platos sin receta no mueve
-      // existencias, así que no genera movimiento (el documento sí se guarda).
+      // Toda venta o compra de productos simples mueve existencias.
       if (movementItems.length > 0) {
         await movementsService.recordDocumentMovement({
           _id: movementId,
@@ -207,34 +201,9 @@ class InventoryDocumentService extends BaseService {
     return new Map(products.map((product) => [product._id, product]));
   }
 
-  /** Insumos de las recetas de los platos; solo aplica a salidas. */
-  async #loadIngredients(userId, productById, isOut, session) {
-    const ingredientById = new Map();
-    if (!isOut) return ingredientById;
-
-    const ingredientIds = new Set();
-    for (const product of productById.values()) {
-      if (product.type !== PRODUCT_TYPE.PREPARED) continue;
-      for (const ri of product.recipe ?? []) ingredientIds.add(ri.ingredientId);
-    }
-    if (!ingredientIds.size) return ingredientById;
-
-    const ingredients = await productsService.findActiveForStockChange(
-      userId,
-      [...ingredientIds],
-      session,
-    );
-    if (ingredients.length !== ingredientIds.size) {
-      throw HttpError.badRequest('A recipe ingredient is invalid or inactive');
-    }
-    for (const ingredient of ingredients) ingredientById.set(ingredient._id, ingredient);
-
-    return ingredientById;
-  }
-
   /** Aplica el plan de stock; en salida exige existencias suficientes. */
-  async #applyStockConsumption({ plan, productById, ingredientById, userId, session, isOut }) {
-    const shortage = findInsufficientStock({ plan, productById, ingredientById, isOut });
+  async #applyStockConsumption({ plan, productById, userId, session, isOut }) {
+    const shortage = findInsufficientStock({ plan, productById, isOut });
     if (shortage) {
       throw HttpError.conflict(
         `Insufficient stock for ${shortage.product?.name ?? `product ${shortage.productId}`}`,

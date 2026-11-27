@@ -172,13 +172,6 @@ class ProductsService extends BaseService {
       throw HttpError.badRequest('Invalid or inactive category');
     }
 
-    // La receta es OPCIONAL para los platos: un restaurante pequeño puede no
-    // tener medidas exactas. Si se envían insumos se validan; si no, queda vacía
-    // (la venta del plato no descontará stock de insumos).
-    const recipe = type === PRODUCT_TYPE.PREPARED
-      ? await this.#validateRecipe(data.recipe, userId)
-      : [];
-
     await limitsService.assertCanCreate(userId, 'products');
 
     try {
@@ -190,7 +183,6 @@ class ProductsService extends BaseService {
         stock: 0,
         // Precio de compra opcional: si no viene, queda en 0.
         purchasePrice: data.purchasePrice ?? 0,
-        recipe,
       }, userId);
     } catch (error) {
       return translateDuplicateKey(error);
@@ -213,7 +205,6 @@ class ProductsService extends BaseService {
       'salePrice',
       'minimumStock',
       'status',
-      'recipe',
       'image',
     ]);
 
@@ -225,19 +216,8 @@ class ProductsService extends BaseService {
       if (!categoryExists) throw HttpError.badRequest('Invalid or inactive category');
     }
 
-    // Tipo efectivo tras la edición (el enviado o el actual).
-    const effectiveType = data.type !== undefined
-      ? this.#validateType(data.type)
-      : current.type;
-    if (data.type !== undefined) data.type = effectiveType;
-
-    // La receta solo aplica a platos; se valida si el producto queda como prepared.
-    if (effectiveType === PRODUCT_TYPE.PREPARED) {
-      const recipeSource = data.recipe !== undefined ? data.recipe : current.recipe;
-      data.recipe = await this.#validateRecipe(recipeSource, userId, productId);
-    } else if (data.recipe !== undefined || data.type !== undefined) {
-      // Si deja de ser prepared, limpiar la receta.
-      data.recipe = [];
+    if (data.type !== undefined) {
+      data.type = this.#validateType(data.type);
     }
 
     const { userId: _userId, stock: _stock, ...safeData } = data;
@@ -257,13 +237,6 @@ class ProductsService extends BaseService {
       throw HttpError.conflict('Record an outbound movement before deleting a product with stock');
     }
 
-    // No permitir eliminar un insumo que esté en la receta de algún plato activo:
-    // dejaría la receta rota y bloquearía la venta de ese plato.
-    const usedInRecipe = await this.repository.findActiveRecipeReference(userId, productId);
-    if (usedInRecipe) {
-      throw HttpError.conflict(`This product is an ingredient of "${usedInRecipe.name}". Remove it from that recipe first.`);
-    }
-
     return this.softDelete(productId, userId);
   }
 
@@ -273,51 +246,6 @@ class ProductsService extends BaseService {
       throw HttpError.badRequest(`type must be one of: ${PRODUCT_TYPES.join(', ')}`);
     }
     return type;
-  }
-
-  /**
-   * Valida la receta de un plato. La receta es OPCIONAL: puede venir vacía o sin
-   * definir (el plato se vende sin descontar insumos). Si trae ítems, cada insumo
-   * debe existir (tipo ingredient o simple, activo, del mismo empresa) con cantidad
-   * positiva. No se permiten sub-recetas (un insumo no puede ser prepared);
-   * `selfId` evita que un plato se use a sí mismo como insumo.
-   */
-  async #validateRecipe(recipe, userId, selfId = null) {
-    // Sin receta → válido (plato sin insumos definidos).
-    if (recipe === undefined || recipe === null) return [];
-    if (!Array.isArray(recipe)) {
-      throw HttpError.badRequest('recipe must be an array of ingredients');
-    }
-    if (recipe.length === 0) return [];
-    if (recipe.length > 100) throw HttpError.badRequest('recipe can contain at most 100 ingredients');
-
-    const normalized = recipe.map((item) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) {
-        throw HttpError.badRequest('Each recipe item must be an object');
-      }
-      const allowed = new Set(['ingredientId', 'quantity']);
-      if (Object.keys(item).some((key) => !allowed.has(key))) {
-        throw HttpError.badRequest('Recipe item contains unsupported fields');
-      }
-      const ingredientId = positiveInteger(item.ingredientId, 'ingredientId');
-      if (selfId != null && ingredientId === positiveInteger(selfId, 'productId')) {
-        throw HttpError.badRequest('A product cannot be an ingredient of itself');
-      }
-      const quantity = item.quantity;
-      if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0) {
-        throw HttpError.badRequest('recipe quantity must be a positive number');
-      }
-      return { ingredientId, quantity };
-    });
-
-    const ids = [...new Set(normalized.map((item) => item.ingredientId))];
-    const ingredients = await this.repository.findActiveIngredients(userId, ids);
-
-    if (ingredients.length !== ids.length) {
-      throw HttpError.badRequest('One or more recipe ingredients are invalid, inactive or not purchasable');
-    }
-
-    return normalized;
   }
 
 }

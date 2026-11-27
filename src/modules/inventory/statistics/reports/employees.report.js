@@ -5,9 +5,9 @@ const { withTimeout } = require('../shared/db');
 const { grossProfitExpression } = require('../shared/aggregations');
 const { DOCUMENT_STATUS, PAYMENT_STATUS } = require('../../inventory.constants');
 
-/** Ventas, cobros, anulaciones y pagos hechos, agrupados por empleado. */
+/** Ventas, cobros y anulaciones agrupadas por empleado. */
 function salesByEmployee(models, userId, from, toExclusive) {
-  const { Sale, EmployeePayment } = models;
+  const { Sale } = models;
   return Promise.all([
     withTimeout(Sale.aggregate([
       { $match: { userId, recordStatus: RECORD_STATUS.ACTIVE, status: { $ne: DOCUMENT_STATUS.VOID }, date: { $gte: from, $lt: toExclusive } } },
@@ -39,25 +39,7 @@ function salesByEmployee(models, userId, from, toExclusive) {
       { $group: { _id: '$cancellationActorId', employeeName: { $last: '$cancellationActorName' }, cancellationCount: { $sum: 1 }, cancelledValue: { $sum: '$total' } } },
       { $project: { _id: 0, employeeId: '$_id', employeeName: 1, cancellationCount: 1, cancelledValue: 1 } },
     ])),
-    employeePaymentSummary(models, userId, from, toExclusive),
   ]);
 }
 
-/** Totales de pagos a empleados en un periodo (opcional por empleado). */
-function employeePaymentSummary(models, userId, from, toExclusive, employeeId = null) {
-  const match = { userId, recordStatus: RECORD_STATUS.ACTIVE };
-  if (from || toExclusive) {
-    match.paymentDate = {};
-    if (from) match.paymentDate.$gte = from;
-    if (toExclusive) match.paymentDate.$lt = toExclusive;
-  }
-  if (employeeId !== null) match.employeeId = employeeId;
-  return withTimeout(models.EmployeePayment.aggregate([
-    { $match: match },
-    { $group: { _id: '$employeeId', employeeName: { $last: '$employeeSnapshot.name' }, paymentCount: { $sum: 1 }, totalPaid: { $sum: '$amount' } } },
-    { $sort: { totalPaid: -1, employeeName: 1 } },
-    { $project: { _id: 0, employeeId: '$_id', employeeName: 1, paymentCount: 1, totalPaid: 1 } },
-  ]));
-}
-
-module.exports = { salesByEmployee, employeePaymentSummary };
+module.exports = { salesByEmployee };

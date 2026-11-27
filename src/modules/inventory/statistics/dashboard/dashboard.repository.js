@@ -8,7 +8,6 @@ const {
   MOVEMENT_TYPE,
   PAYMENT_STATUS,
   PRODUCT_STATUS,
-  PRODUCT_TYPE,
   LOYALTY_TIER,
 } = require('../../inventory.constants');
 
@@ -19,7 +18,7 @@ class DashboardRepository {
 
   async dashboard(userId, since) {
     const { Product, Movement, Sale, Customer, Delivery, Layaway } = this.models;
-    const physicalProducts = { userId, type: { $ne: PRODUCT_TYPE.PREPARED }, recordStatus: RECORD_STATUS.ACTIVE };
+    const physicalProducts = { userId, recordStatus: RECORD_STATUS.ACTIVE };
     const activePhysicalProducts = { ...physicalProducts, status: PRODUCT_STATUS.ACTIVE };
     const activeMovements = { userId, recordStatus: RECORD_STATUS.ACTIVE };
     const [totalProducts, outOfStock, lowStock, inventoryValueRows, recentMovements, topProducts, customers, topEmployees, deliveryStats, layaways] = await Promise.all([
@@ -155,7 +154,6 @@ class DashboardRepository {
     const products = await withTimeout(Product.find({
       userId,
       status: PRODUCT_STATUS.ACTIVE,
-      type: { $ne: PRODUCT_TYPE.PREPARED },
       recordStatus: RECORD_STATUS.ACTIVE,
       $or: [
         { stock: 0 },

@@ -10,7 +10,6 @@ const { createDeliveryForSale } = require('./sale-delivery');
 const { customersService } = require('../customers/customers.service');
 const { positiveInteger } = require('../validation');
 const {
-  PRODUCT_TYPE,
   MOVEMENT_TYPE,
   MOVEMENT_DIRECTION,
   DOCUMENT_STATUS,
@@ -194,38 +193,21 @@ class SalesService extends InventoryDocumentService {
 
       let voidMovementId = null;
       if (!skipRestock) {
-      // Reponer stock EXPANDIENDO recetas, igual que se descontó en la venta:
-      // un plato (prepared) no repone stock propio, repone el de sus insumos.
+      // Reponer el stock de los productos vendidos.
       const soldIds = [...new Set(sale.items.map((item) => item.productId))];
       const soldProducts = await productsService.findSaleReversalDetails(userId, soldIds, session);
       const soldById = new Map(soldProducts.map((p) => [p._id, p]));
 
-      // Consumo físico real a reponer (insumos para platos, el producto para simples).
       const restock = new Map();
       for (const item of sale.items) {
-        const product = soldById.get(item.productId);
-        if (product && product.type === PRODUCT_TYPE.PREPARED) {
-          for (const ri of product.recipe ?? []) {
-            restock.set(ri.ingredientId, (restock.get(ri.ingredientId) || 0) + ri.quantity * item.quantity);
-          }
-        } else {
-          restock.set(item.productId, (restock.get(item.productId) || 0) + item.quantity);
-        }
+        restock.set(item.productId, (restock.get(item.productId) || 0) + item.quantity);
       }
 
       for (const [productId, qty] of restock) {
         await productsService.restoreStock(userId, productId, qty, session);
       }
 
-      // Movimiento de reversa (entrada) con el consumo físico real (insumos expandidos).
-      const ingredientById = new Map(soldProducts.map((p) => [p._id, p]));
-      const missingIds = [...restock.keys()].filter((pid) => !ingredientById.has(pid));
-      if (missingIds.length) {
-        const extra = await productsService.findSaleReversalDetails(userId, missingIds, session);
-        for (const p of extra) ingredientById.set(p._id, p);
-      }
-      // Movimiento de reversa solo si hubo stock que reponer. Una venta de solo
-      // platos sin receta no descontó nada, así que tampoco genera reversa.
+      // Movimiento de reversa (entrada) con las cantidades vendidas.
       if (restock.size > 0) {
         voidMovementId = UniqueNumberUtil.generateRaw();
         await movementsService.recordDocumentMovement({
@@ -242,7 +224,7 @@ class SalesService extends InventoryDocumentService {
             productId,
             quantity: qty,
             direction: MOVEMENT_DIRECTION.IN,
-            unitCost: ingredientById.get(productId)?.purchasePrice ?? 0,
+            unitCost: soldById.get(productId)?.purchasePrice ?? 0,
           })),
           createdBy: userId,
           updatedBy: userId,
