@@ -72,3 +72,30 @@ cp .env.example .env
 npm install
 npm run dev
 ```
+
+## Verificación de cuenta con OTP
+
+El registro de empresa no inicia sesión hasta confirmar el correo. El OTP se
+guarda hasheado en `foundation_users`, vence a los 10 minutos y se limpia al
+usarse.
+
+```text
+POST /foundation/auth/users/register
+POST /foundation/auth/users/verify-email
+POST /foundation/auth/users/resend-verification
+```
+
+El correo se envía por Notify. Configura:
+
+```env
+NOTIFY_API_URL=
+NOTIFY_API_KEY=
+OTP_TTL_MINUTES=10
+OTP_LENGTH=6
+OTP_MAX_ATTEMPTS=5
+OTP_RESEND_COOLDOWN_SECONDS=60
+OTP_SECRET=
+```
+
+El correo y la pantalla de verificación advierten que el mensaje puede llegar a
+spam.

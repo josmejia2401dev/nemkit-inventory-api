@@ -4,6 +4,9 @@ const { createFoundation } = require('nemkit');
 const { env } = require('./env');
 const logger = require('./logger');
 const { PLANS } = require('./plans');
+const { sendEmail } = require('./otp-notifier');
+
+const notifier = env.NOTIFY_API_URL && env.NOTIFY_API_KEY ? { sendEmail } : null;
 
 let foundation;
 
@@ -11,6 +14,8 @@ foundation = createFoundation({
   env,
   logger,
   plans: PLANS,
+  productName: 'Nemkit Inventory',
+  notifier,
   // Retail: sin meseros, cocineros ni bodega dedicada.
   roles: ['SUPERADMIN', 'ADMIN', 'USER', 'CASHIER', 'SELLER', 'COURIER'],
   counters: {

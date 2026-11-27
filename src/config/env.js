@@ -36,6 +36,15 @@ const env = loadEnv({
   STORAGE_MAX_FILE_MB:     { type: 'number', default: 15 },  // límite hard (BSON < 16MB)
   STORAGE_STAGING_TTL_MS:  { type: 'number', default: 1800000 },
 
+  // Correo transaccional (OTP) vía Notify interno.
+  NOTIFY_API_URL: { default: '' },
+  NOTIFY_API_KEY: { default: '' },
+  OTP_TTL_MINUTES: { type: 'number', default: 10 },
+  OTP_LENGTH: { type: 'number', default: 6 },
+  OTP_MAX_ATTEMPTS: { type: 'number', default: 5 },
+  OTP_RESEND_COOLDOWN_SECONDS: { type: 'number', default: 60 },
+  OTP_SECRET: { default: '' },
+
   // Seed del admin (primer arranque, si no hay usuarios).
   // Los tres son REQUERIDOS y sin default: nada de credenciales del admin
   // queda hardcodeado en el código. Deben venir del entorno (.env / Render).
