@@ -15,6 +15,7 @@ foundation = createFoundation({
   logger,
   plans: PLANS,
   productName: 'Nemkit Inventory',
+  emailVerification: true,
   notifier,
   // Retail: sin meseros, cocineros ni bodega dedicada.
   roles: ['SUPERADMIN', 'ADMIN', 'USER', 'CASHIER', 'SELLER', 'COURIER'],
