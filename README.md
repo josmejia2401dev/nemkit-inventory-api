@@ -90,12 +90,10 @@ El correo se envía por Notify. Configura:
 ```env
 NOTIFY_API_URL=
 NOTIFY_API_KEY=
-OTP_TTL_MINUTES=10
-OTP_LENGTH=6
-OTP_MAX_ATTEMPTS=5
-OTP_RESEND_COOLDOWN_SECONDS=60
-OTP_SECRET=
 ```
+
+El OTP es fijo por diseño: 6 dígitos, 10 minutos, 5 intentos y 60 segundos de
+cooldown. Se firma con `JWT_SECRET`; no requiere variables adicionales.
 
 El correo y la pantalla de verificación advierten que el mensaje puede llegar a
 spam.
