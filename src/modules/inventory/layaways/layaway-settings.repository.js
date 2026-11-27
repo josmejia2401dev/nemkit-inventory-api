@@ -8,8 +8,9 @@ class LayawaySettingsRepository extends MongoRepository {
     super(LayawaySettings);
   }
 
-  findByUser(userId) {
-    return this.normalizeOutput(this.model.findOne({ userId }).lean());
+  async findByUser(userId) {
+    const doc = await this.model.findOne({ userId }).lean();
+    return this.normalizeOutput(doc);
   }
 
   async save(userId, data, actorId) {
